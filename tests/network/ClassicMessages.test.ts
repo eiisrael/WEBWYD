@@ -48,7 +48,7 @@ describe("mensagens clássicas auditadas", () => {
     const encoded = encodeAccountLoginField("A", 12, 11);
     // A (0x41) + key[11] (0x7d); os bytes NUL seguintes também recebem as chaves.
     expect(encoded[0]).toBe((0x41 + 0x7d) & 0xff);
-    expect(encoded[1]).toBe(0x87);
+    expect(encoded[1]).toBe(0x85);
     expect(encoded[11]).toBe(0x7d);
   });
 

@@ -19,6 +19,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github
+            docs
+            public/game-data/classic
+            src
+            tests
+            tools
+            .gitignore
+            bun.lock
+            index.html
+            package.json
+            README.md
+            SECURITY.md
+            tsconfig.json
+          sparse-checkout-cone-mode: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

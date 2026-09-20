@@ -328,3 +328,23 @@ considerados fiéis quando possuem uma origem rastreável no cliente clássico.
 Rede permanece fora do runtime atual por decisão de fase. A suíte de testes e
 o CI já fazem parte do projeto; cada etapa deve fechar com lint, testes, build e
 inspeção manual focada quando houver componente visual.
+
+
+## Execução pós-auditoria
+
+### P0 — protocolo/rede — **iniciado em 20/09/2026**
+
+Primeiro lote concluído:
+
+- `src/network/classic/PacketIO.ts`;
+- `src/network/classic/Protocol.ts`;
+- `src/network/classic/Messages.ts`;
+- `src/network/transport/WebSocketClassicTransport.ts`;
+- testes binários para `MSG_STANDARD`, `MSG_AccountLogin`,
+  `MSG_CharacterLogin` e `MSG_Action`;
+- arquitetura Browser → WSS Gateway → TMSrv documentada em
+  [docs/NETWORK_PROTOCOL.md](docs/NETWORK_PROTOCOL.md).
+
+A camada ainda está isolada do `GameApp` para preservar o modo offline
+homologado. Próximo passo: dispatcher de packets, state machine de sessão e
+protótipo do gateway clássico.

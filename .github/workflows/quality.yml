@@ -34,6 +34,8 @@ jobs:
             README.md
             SECURITY.md
             tsconfig.json
+            BASE759/SOURCERS/Source do Servidor/Code/DBSrv/dbMySQL.h
+            BASE759/SOURCERS/Source do Servidor/Code/TMSrv/wMySQL.h
           sparse-checkout-cone-mode: false
 
       - name: Setup Bun

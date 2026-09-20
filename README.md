@@ -69,7 +69,7 @@ Uma captura real foi gerada para cada Field disponível. Veja a
 - [Git](https://git-scm.com/).
 - [Bun 1.x](https://bun.sh/docs/installation) — este projeto não usa npm.
 - Navegador desktop atual com WebGL 2 e aceleração de hardware habilitada.
-- Aproximadamente 400 MB livres para o snapshot web, dependências e build. O material legado `BASE759` não faz parte do runtime e não deve ser versionado neste repositório.
+- Espaço adicional é necessário para o corpus de referência `BASE759`, que permanece versionado para comparação com o cliente/servidor clássico. Ele não participa do runtime web nem do build.
 
 ### 1. Clonar e instalar
 
@@ -139,13 +139,17 @@ economia, drops e decisões anticheat precisam permanecer no servidor.
 
 ## Material clássico de referência
 
-O diretório legado `BASE759` foi removido do snapshot web e está bloqueado pelo
-`.gitignore`. Cliente clássico, servidor antigo, dumps SQL, executáveis, PDBs e
-sources de referência devem ficar fora deste repositório. O runtime usa apenas o
-pacote necessário em `public/game-data/classic`.
+O diretório `BASE759` é mantido **intencionalmente** no repositório como corpus
+de referência para comparar estruturas, formatos, comportamento do cliente,
+servidor e dados clássicos enquanto o WEBWYD é reproduzido no navegador.
 
-Não versione senhas, credenciais de banco, arquivos `.env` reais ou configurações
-de produção. Consulte [SECURITY.md](SECURITY.md).
+Ele não é importado pelo runtime web e não participa do build. O runtime usa o
+pacote preparado em `public/game-data/classic`.
+
+Arquivos de referência podem ser usados para auditoria de lógica, nomes,
+estruturas, offsets, animações, mapas, protocolos e comportamento clássico, mas
+credenciais operacionais reais não devem ser preservadas. Consulte
+[SECURITY.md](SECURITY.md).
 
 ## Recriando os assets a partir do cliente clássico
 

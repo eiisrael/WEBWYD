@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.DS_Store
+coverage/
+
+# Local secrets and machine-specific environment files
+.env
+.env.*
+!.env.example
+
+# Reference/source dumps are intentionally kept outside the web runtime repo.
+BASE759/
+
+# Bun is the canonical package manager for this project.
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

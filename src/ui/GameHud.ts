@@ -1,0 +1,1453 @@
+import {
+  EQUIPMENT_SLOTS,
+  INVENTORY_BAG_COUNT,
+  INVENTORY_BAG_SIZE,
+  type EquipmentSlot,
+  type InventoryItem,
+  type InventoryStack,
+  type PlayerSnapshot,
+  type PlayerState,
+  type PrimaryAttribute,
+} from "../game/state/PlayerState";
+import {
+  nextAutoCombatMode,
+  nextAutoCombatPositionMode,
+  type AutoCombatMode,
+  type AutoCombatPositionMode,
+} from "../game/combat/AutoCombat";
+
+type InventoryItemSource =
+  | { readonly kind: "inventory"; readonly slot: number }
+  | { readonly kind: "equipment"; readonly slot: EquipmentSlot };
+
+interface InventoryPointerDrag {
+  readonly pointerId: number;
+  readonly startX: number;
+  readonly startY: number;
+  readonly source: InventoryItemSource;
+  readonly item: InventoryItem;
+  readonly anchor: HTMLButtonElement;
+  moved: boolean;
+  ghost: HTMLElement | null;
+}
+
+export interface TargetHudSnapshot {
+  readonly name: string;
+  readonly level?: number;
+  readonly hp: number;
+  readonly maxHp: number;
+  readonly hostile: boolean;
+}
+
+export interface SkillHudEntry {
+  readonly slot: number;
+  readonly name: string;
+  readonly shortName: string;
+  readonly mana: number;
+  readonly classicIndex?: number;
+  /** True only for an aggressive enemy skill that actually occupies the bar. */
+  readonly offensive?: boolean;
+}
+
+export interface BuffHudEntry {
+  readonly classicIndex: number;
+  readonly name: string;
+  readonly iconIndex: number;
+  readonly durationSeconds: number;
+  readonly remainingSeconds: number;
+}
+
+export type ChatChannel = "general" | "party" | "guild";
+
+interface ClassicSkillCatalogClass {
+  readonly key: string;
+  readonly name: string;
+  readonly masteries: readonly string[];
+  readonly skills: readonly number[];
+  readonly masterSkills: readonly number[];
+}
+
+interface ClassicSkillCatalogEntry {
+  readonly index: number;
+  readonly name: string;
+  readonly classKey: string | null;
+  readonly category: "class" | "master" | "special";
+  readonly mastery: number | null;
+  readonly masterySlot: number | null;
+  readonly kind: "active" | "buff" | "passive";
+  readonly manaSpent: number;
+  readonly delaySeconds: number;
+  readonly range: number;
+  readonly iconIndex: number | null;
+}
+
+interface ClassicSkillCatalog {
+  readonly classes: readonly ClassicSkillCatalogClass[];
+  readonly specialSkills?: readonly number[];
+  readonly alwaysLearnedSkills?: readonly number[];
+  readonly skills: readonly ClassicSkillCatalogEntry[];
+}
+
+interface ClassicItemIconCatalog {
+  readonly version: number;
+  readonly cellSize: number;
+  readonly columns: number;
+  readonly iconsPerAtlas: number;
+  readonly atlases: readonly string[];
+  readonly itemToIcon: readonly number[];
+}
+
+export class GameHud {
+  onSkillClassSelected: ((classKey: string) => void) | null = null;
+  onCatalogSkillUse: ((classicIndex: number) => void) | null = null;
+  onInventoryPreview: ((item: InventoryItem | null) => void) | null = null;
+  onAutoCombatModeSelected: ((mode: AutoCombatMode) => void) | null = null;
+  onAutoCombatSkillSlotsChanged: ((slots: readonly number[]) => void) | null = null;
+  onAutoCombatRecoveryThresholdChanged: ((percentage: number) => void) | null = null;
+  onAutoCombatMountThresholdChanged: ((percentage: number) => void) | null = null;
+  onAutoCombatPositionModeSelected: ((mode: AutoCombatPositionMode) => void) | null = null;
+  onChatSubmit: ((message: string, channel: ChatChannel) => void) | null = null;
+  readonly #target = requireElement<HTMLElement>("#target-status");
+  readonly #targetName = requireElement<HTMLElement>("#target-name");
+  readonly #targetLevel = requireElement<HTMLElement>("#target-level");
+  readonly #targetHp = requireElement<HTMLElement>("#target-hp-fill");
+  readonly #inventory = requireElement<HTMLElement>("#inventory-panel");
+  readonly #inventoryGrid = requireElement<HTMLElement>("#inventory-grid");
+  readonly #inventoryEquipment = requireElement<HTMLElement>("#inventory-equipment");
+  readonly #inventoryBags = requireElement<HTMLElement>("#inventory-bags");
+  readonly #inventoryPreview = requireElement<HTMLElement>("#inventory-preview");
+  readonly #characterPanel = requireElement<HTMLElement>("#character-panel");
+  readonly #combatLog = requireElement<HTMLElement>("#combat-log");
+  readonly #chatShell = requireElement<HTMLElement>(".classic-chat-shell");
+  readonly #chatInput = requireElement<HTMLInputElement>("#chat-message");
+  readonly #chatChannelLabel = requireElement<HTMLButtonElement>("#chat-channel-label");
+  readonly #gameMenu = requireElement<HTMLElement>("#game-menu-panel");
+  readonly #ccPanel = requireElement<HTMLElement>("#cc-panel");
+  readonly #ccSkillList = requireElement<HTMLElement>("#cc-skill-list");
+  readonly #buffStatus = requireElement<HTMLElement>("#buff-status");
+  readonly #skillPanel = requireElement<HTMLElement>("#skill-panel");
+  readonly #skillCatalogGrid = requireElement<HTMLElement>("#skill-catalog-grid");
+  readonly #skillCatalogStatus = requireElement<HTMLElement>("#skill-catalog-status");
+  readonly #skillClassSelect = requireElement<HTMLSelectElement>("#skill-class-select");
+  #state: PlayerState | null = null;
+  #unsubscribe: (() => void) | null = null;
+  #lastSnapshot: PlayerSnapshot | null = null;
+  #buffSignature = "";
+  #skillCatalog: ClassicSkillCatalog | null = null;
+  #skillCatalogJob: Promise<void> | null = null;
+  #itemIconCatalog: ClassicItemIconCatalog | null = null;
+  #itemIconCatalogJob: Promise<ClassicItemIconCatalog | null> | null = null;
+  #inventorySignature = "";
+  #activeInventoryBag = 0;
+  #selectedInventorySource: InventoryItemSource | null = null;
+  #selectedInventoryItemKey: string | null = null;
+  #inventoryPointerDrag: InventoryPointerDrag | null = null;
+  #suppressInventoryClick = false;
+  #activeClassKey = "huntress";
+  #runtimeSkillIndices = new Set<number>();
+  #runtimeSkills: readonly SkillHudEntry[] = [];
+  #autoCombatMode: AutoCombatMode = "off";
+  #autoCombatSkillSlots: number[] = [];
+  #autoCombatRecoveryThreshold = 30;
+  #autoCombatMountThreshold = 30;
+  #autoCombatPositionMode: AutoCombatPositionMode = "continuous";
+  #chatChannel: ChatChannel = "general";
+  #chatHistory: string[] = [];
+  #chatHistoryCursor = 0;
+
+  constructor() {
+    document.querySelector<HTMLElement>("[data-inventory-close]")?.addEventListener("click", () => {
+      this.toggleInventory(false);
+    });
+    for (const button of this.#inventoryBags.querySelectorAll<HTMLButtonElement>("[data-inventory-bag]")) {
+      button.addEventListener("click", () => {
+        const bag = Number(button.dataset.inventoryBag);
+        if (!Number.isInteger(bag) || bag < 0 || bag >= INVENTORY_BAG_COUNT) return;
+        this.setActiveInventoryBag(bag);
+      });
+    }
+    window.addEventListener("pointermove", this.inventoryPointerMove, { passive: false });
+    window.addEventListener("pointerup", this.inventoryPointerUp, { passive: false });
+    window.addEventListener("pointercancel", this.inventoryPointerCancel);
+    document.querySelector<HTMLElement>("[data-character-close]")?.addEventListener("click", () => {
+      this.toggleCharacter(false);
+    });
+    for (const attribute of PRIMARY_ATTRIBUTES) {
+      document.querySelector<HTMLButtonElement>(`[data-character-attribute="${attribute}"]`)
+        ?.addEventListener("click", () => this.#state?.allocatePrimaryAttribute(attribute));
+    }
+    document.querySelector<HTMLElement>("[data-skills-close]")?.addEventListener("click", () => {
+      this.toggleSkills(false);
+    });
+    this.#skillClassSelect.addEventListener("change", () => {
+      this.renderSkillCatalog();
+      this.onSkillClassSelected?.(this.#skillClassSelect.value);
+    });
+    document.querySelector<HTMLButtonElement>("#hud-cc-button")?.addEventListener("click", () => {
+      this.toggleAutoCombatPanel();
+    });
+    document.querySelector<HTMLButtonElement>("[data-cc-close]")?.addEventListener("click", () => {
+      this.toggleAutoCombatPanel(false);
+    });
+    document.querySelector<HTMLButtonElement>("[data-cc-mode-cycle]")?.addEventListener("click", () => {
+      this.onAutoCombatModeSelected?.(nextAutoCombatMode(this.#autoCombatMode));
+    });
+    document.querySelector<HTMLButtonElement>("#cc-recovery-cycle")?.addEventListener("click", () => {
+      const next = this.#autoCombatRecoveryThreshold >= 90 ? 0 : this.#autoCombatRecoveryThreshold + 10;
+      this.onAutoCombatRecoveryThresholdChanged?.(next);
+    });
+    document.querySelector<HTMLButtonElement>("#cc-mount-cycle")?.addEventListener("click", () => {
+      const next = this.#autoCombatMountThreshold >= 90 ? 0 : this.#autoCombatMountThreshold + 10;
+      this.onAutoCombatMountThresholdChanged?.(next);
+    });
+    document.querySelector<HTMLButtonElement>("#cc-position-cycle")?.addEventListener("click", () => {
+      this.onAutoCombatPositionModeSelected?.(nextAutoCombatPositionMode(this.#autoCombatPositionMode));
+    });
+    document.querySelector<HTMLButtonElement>("#hud-menu-button")?.addEventListener("click", () => {
+      this.toggleGameMenu();
+    });
+    document.querySelector<HTMLButtonElement>("[data-game-menu-close]")?.addEventListener("click", () => {
+      this.toggleGameMenu(false);
+    });
+    for (const button of document.querySelectorAll<HTMLButtonElement>("[data-game-menu-action]")) {
+      button.addEventListener("click", () => this.runGameMenuAction(button.dataset.gameMenuAction ?? ""));
+    }
+    for (const button of document.querySelectorAll<HTMLButtonElement>("[data-chat-channel]")) {
+      button.addEventListener("click", () => {
+        const channel = parseChatChannel(button.dataset.chatChannel);
+        if (channel) this.setChatChannel(channel);
+      });
+    }
+    this.#chatChannelLabel.addEventListener("click", () => {
+      const index = CHAT_CHANNELS.indexOf(this.#chatChannel);
+      this.setChatChannel(CHAT_CHANNELS[(index + 1) % CHAT_CHANNELS.length] ?? "general");
+      if (this.#chatShell.classList.contains("is-chatting")) this.#chatInput.focus();
+    });
+    this.#chatInput.addEventListener("keydown", this.chatInputKeyDown);
+    window.addEventListener("keydown", this.chatGlobalKeyDown, true);
+  }
+
+  dispose(): void {
+    window.removeEventListener("pointermove", this.inventoryPointerMove);
+    window.removeEventListener("pointerup", this.inventoryPointerUp);
+    window.removeEventListener("pointercancel", this.inventoryPointerCancel);
+    window.removeEventListener("keydown", this.chatGlobalKeyDown, true);
+    this.#chatInput.removeEventListener("keydown", this.chatInputKeyDown);
+    this.#unsubscribe?.();
+    this.#unsubscribe = null;
+    this.#state = null;
+    this.clearInventorySelection();
+  }
+
+  bindPlayer(state: PlayerState): void {
+    this.#unsubscribe?.();
+    this.#state = state;
+    this.#unsubscribe = state.subscribe((snapshot) => this.renderPlayer(snapshot));
+    void this.ensureItemIconCatalog();
+  }
+
+  setTarget(target: TargetHudSnapshot | null): void {
+    this.#target.classList.toggle("is-visible", target !== null);
+    if (!target) return;
+    this.#target.classList.toggle("is-friendly", !target.hostile);
+    this.#targetName.textContent = target.name.replaceAll("_", " ");
+    this.#targetLevel.textContent = target.level ? `Lv. ${target.level}` : (target.hostile ? "MONSTRO" : "NPC");
+    this.#targetHp.style.width = `${ratio(target.hp, target.maxHp) * 100}%`;
+    setText("#target-hp-text", `${Math.max(0, target.hp)} / ${Math.max(0, target.maxHp)}`);
+  }
+
+  toggleInventory(force?: boolean): boolean {
+    const visible = force ?? !this.#inventory.classList.contains("is-visible");
+    this.#inventory.classList.toggle("is-visible", visible);
+    this.#inventoryPreview.classList.toggle("is-inventory-visible", visible);
+    if (!visible) this.clearInventorySelection();
+    return visible;
+  }
+
+  toggleCharacter(force?: boolean): boolean {
+    const visible = force ?? !this.#characterPanel.classList.contains("is-visible");
+    this.#characterPanel.classList.toggle("is-visible", visible);
+    this.#characterPanel.setAttribute("aria-hidden", String(!visible));
+    return visible;
+  }
+
+  toggleSkills(force?: boolean): boolean {
+    const visible = force ?? !this.#skillPanel.classList.contains("is-visible");
+    this.#skillPanel.classList.toggle("is-visible", visible);
+    if (visible) void this.ensureSkillCatalog();
+    return visible;
+  }
+
+  toggleGameMenu(force?: boolean): boolean {
+    const visible = force ?? !this.#gameMenu.classList.contains("is-visible");
+    if (visible) this.toggleAutoCombatPanel(false);
+    this.#gameMenu.classList.toggle("is-visible", visible);
+    this.#gameMenu.setAttribute("aria-hidden", String(!visible));
+    return visible;
+  }
+
+  toggleAutoCombatPanel(force?: boolean): boolean {
+    const visible = force ?? !this.#ccPanel.classList.contains("is-visible");
+    if (visible) this.toggleGameMenu(false);
+    this.#ccPanel.classList.toggle("is-visible", visible);
+    this.#ccPanel.setAttribute("aria-hidden", String(!visible));
+    const button = document.querySelector<HTMLButtonElement>("#hud-cc-button");
+    button?.setAttribute("aria-expanded", String(visible));
+    if (visible) {
+      this.addLog(
+        `C.C · HP/MP ${this.#autoCombatRecoveryThreshold}% · montaria ${this.#autoCombatMountThreshold}%.`,
+        "system",
+      );
+    }
+    return visible;
+  }
+
+  addLog(message: string, tone: "normal" | "damage" | "reward" | "system" = "normal"): void {
+    const line = document.createElement("p");
+    line.className = `combat-log-line is-${tone}`;
+    line.textContent = message;
+    this.#combatLog.appendChild(line);
+    this.trimChatLog();
+  }
+
+  addChatMessage(author: string, message: string, channel: ChatChannel = "general"): void {
+    const text = message.trim();
+    if (!text) return;
+    const line = document.createElement("p");
+    line.className = `combat-log-line is-chat is-chat-${channel}`;
+    const prefix = document.createElement("strong");
+    prefix.textContent = channel === "general"
+      ? `[${author}]> `
+      : `[${CHAT_CHANNEL_LABELS[channel]}] [${author}]> `;
+    const content = document.createElement("span");
+    content.textContent = text;
+    line.append(prefix, content);
+    this.#combatLog.appendChild(line);
+    this.trimChatLog();
+  }
+
+  configureSkills(skills: readonly SkillHudEntry[], onUse: (slot: number) => void): void {
+    this.#runtimeSkills = [...skills];
+    this.#runtimeSkillIndices = new Set(skills.flatMap((skill) => (
+      skill.classicIndex === undefined ? [] : [skill.classicIndex]
+    )));
+    for (let slot = 1; slot <= 9; slot++) {
+      const button = document.querySelector<HTMLButtonElement>(`#skill-slot-${slot}`);
+      if (!button) continue;
+      const skill = skills.find((candidate) => candidate.slot === slot);
+      const name = button.querySelector<HTMLElement>(".skill-name");
+      const icon = button.querySelector<HTMLElement>(".quickslot-icon");
+      if (!skill) {
+        button.disabled = true;
+        button.title = `${slot} · espaço de skill vazio`;
+        button.setAttribute("aria-label", button.title);
+        if (name) name.textContent = "";
+        if (icon) {
+          icon.classList.remove("is-classic-skill");
+          icon.textContent = "";
+          icon.style.removeProperty("--skill-icon-x");
+          icon.style.removeProperty("--skill-icon-y");
+        }
+        button.onclick = null;
+        this.setSkillCooldown(slot, 0, 0);
+        continue;
+      }
+      button.disabled = false;
+      button.title = `${skill.slot} · ${skill.name} · ${skill.mana} MP`;
+      button.setAttribute("aria-label", button.title);
+      if (name) name.textContent = skill.shortName;
+      if (icon && skill.classicIndex !== undefined) {
+        const iconIndex = Math.max(0, Math.min(152, Math.trunc(skill.classicIndex)));
+        icon.classList.add("is-classic-skill");
+        icon.textContent = "";
+        icon.style.setProperty("--skill-icon-x", `${-(iconIndex % 16) * 21}px`);
+        icon.style.setProperty("--skill-icon-y", `${-Math.floor(iconIndex / 16) * 21}px`);
+      }
+      button.onclick = () => onUse(skill.slot);
+    }
+    this.renderAutoCombatSkills();
+    if (this.#skillCatalog) this.renderSkillCatalog();
+  }
+
+  setActiveSkillClass(classKey: string): void {
+    this.#activeClassKey = classKey;
+    if (this.#skillCatalog?.classes.some((entry) => entry.key === classKey)) {
+      this.#skillClassSelect.value = classKey;
+      this.renderSkillCatalog();
+    }
+  }
+
+  setSkillCooldown(slot: number, remaining: number, ratioValue: number): void {
+    const button = document.querySelector<HTMLButtonElement>(`#skill-slot-${slot}`);
+    if (!button) return;
+    const ratio = Math.max(0, Math.min(1, ratioValue));
+    button.classList.toggle("is-cooling", remaining > 0.02);
+    button.style.setProperty("--cooldown", String(ratio));
+    const overlay = button.querySelector<HTMLElement>(".skill-cooldown");
+    if (overlay) overlay.textContent = remaining > 0.05 ? remaining.toFixed(remaining < 1 ? 1 : 0) : "";
+  }
+
+  setBuffs(buffs: readonly BuffHudEntry[]): void {
+    const signature = buffs
+      .map((buff) => `${buff.classicIndex}:${Math.max(0, Math.ceil(buff.remainingSeconds))}`)
+      .join("|");
+    if (signature === this.#buffSignature) return;
+    this.#buffSignature = signature;
+    const entries = buffs.map((buff) => {
+      const element = document.createElement("div");
+      element.className = "classic-buff";
+      element.title = `${buff.name} · ${Math.max(0, buff.remainingSeconds).toFixed(1)}s`;
+      element.setAttribute("aria-label", element.title);
+      const icon = document.createElement("i");
+      const iconIndex = Math.max(0, Math.min(152, Math.trunc(buff.iconIndex)));
+      icon.style.setProperty("--buff-icon-x", `${-(iconIndex % 16) * 24}px`);
+      icon.style.setProperty("--buff-icon-y", `${-Math.floor(iconIndex / 16) * 24}px`);
+      const time = document.createElement("small");
+      time.textContent = String(Math.max(0, Math.ceil(buff.remainingSeconds)));
+      const ratio = buff.durationSeconds <= 0
+        ? 0
+        : Math.max(0, Math.min(1, buff.remainingSeconds / buff.durationSeconds));
+      element.style.setProperty("--buff-remaining", String(ratio));
+      element.append(icon, time);
+      return element;
+    });
+    this.#buffStatus.replaceChildren(...entries);
+    this.#buffStatus.classList.toggle("is-visible", entries.length > 0);
+  }
+
+  setAutoCombat(mode: AutoCombatMode, configuredSlots: readonly number[] = this.#autoCombatSkillSlots): void {
+    this.#autoCombatMode = mode;
+    const allowed = new Set(this.#runtimeSkills.filter(isMacroHudSkill).map((skill) => skill.slot));
+    this.#autoCombatSkillSlots = configuredSlots
+      .filter((slot, index, slots) => allowed.has(slot) && slots.indexOf(slot) === index)
+      .slice(0, 10);
+    const active = mode !== "off";
+    const element = document.querySelector<HTMLElement>("#auto-combat");
+    element?.classList.toggle("is-active", active);
+    element?.setAttribute("data-cc-mode", mode);
+    const label = element?.querySelector<HTMLElement>("span");
+    if (label) label.textContent = AUTO_COMBAT_LABELS[mode].compact;
+    const button = document.querySelector<HTMLButtonElement>("#hud-cc-button");
+    button?.classList.toggle("is-active", active);
+    button?.setAttribute("aria-pressed", String(active));
+    button?.setAttribute("data-cc-mode", mode);
+    if (button) button.title = `C.C · ${AUTO_COMBAT_LABELS[mode].title} · clique para configurar`;
+    this.#ccPanel.setAttribute("data-cc-mode", mode);
+    const modeButton = document.querySelector<HTMLButtonElement>("#cc-mode-cycle");
+    if (modeButton) {
+      modeButton.dataset.ccMode = mode;
+      modeButton.setAttribute("aria-label", `Modo do C.C: ${AUTO_COMBAT_LABELS[mode].title}`);
+      modeButton.title = `${AUTO_COMBAT_LABELS[mode].status} · clique para alternar`;
+    }
+    setText("#cc-mode-name", AUTO_COMBAT_LABELS[mode].title);
+    setText("#cc-profile-status", AUTO_COMBAT_LABELS[mode].status);
+    this.renderAutoCombatSkills();
+  }
+
+  setAutoCombatAuxiliary(
+    recoveryThreshold: number,
+    mountThreshold: number,
+    positionMode: AutoCombatPositionMode,
+  ): void {
+    this.#autoCombatRecoveryThreshold = clampAutoCombatThreshold(recoveryThreshold);
+    this.#autoCombatMountThreshold = clampAutoCombatThreshold(mountThreshold);
+    this.#autoCombatPositionMode = positionMode;
+    setText("#cc-recovery-value", String(this.#autoCombatRecoveryThreshold));
+    setText("#cc-mount-value", String(this.#autoCombatMountThreshold));
+    setText("#cc-position-name", AUTO_COMBAT_POSITION_LABELS[positionMode].title);
+    const recovery = document.querySelector<HTMLButtonElement>("#cc-recovery-cycle");
+    recovery?.setAttribute(
+      "aria-label",
+      `Recuperação automática em ${this.#autoCombatRecoveryThreshold} por cento`,
+    );
+    if (recovery) recovery.title = `HP/MP automático · ${this.#autoCombatRecoveryThreshold}%`;
+    const mount = document.querySelector<HTMLButtonElement>("#cc-mount-cycle");
+    mount?.setAttribute(
+      "aria-label",
+      `Montaria em ${this.#autoCombatMountThreshold} por cento`,
+    );
+    if (mount) mount.title = `HP/ração da montaria · ${this.#autoCombatMountThreshold}% · aguarda estado do servidor`;
+    const position = document.querySelector<HTMLButtonElement>("#cc-position-cycle");
+    if (position) {
+      position.dataset.ccPosition = positionMode;
+      position.setAttribute("aria-label", AUTO_COMBAT_POSITION_LABELS[positionMode].aria);
+      position.title = AUTO_COMBAT_POSITION_LABELS[positionMode].aria;
+    }
+  }
+
+  private renderAutoCombatSkills(): void {
+    const candidates = this.#runtimeSkills
+      .filter(isMacroHudSkill)
+      .filter((skill, index, skills) => skills.findIndex((entry) => entry.slot === skill.slot) === index)
+      .slice(0, 10);
+    const bySlot = new Map(candidates.map((skill) => [skill.slot, skill]));
+    const selectedSlots = this.#autoCombatSkillSlots.filter((slot) => bySlot.has(slot));
+    const selected = new Set(selectedSlots);
+    const ordered = [
+      ...selectedSlots.flatMap((slot) => {
+        const skill = bySlot.get(slot);
+        return skill ? [skill] : [];
+      }),
+      ...candidates.filter((skill) => !selected.has(skill.slot)).sort((left, right) => left.slot - right.slot),
+    ];
+    setText("#cc-skill-count", `${selectedSlots.length} / 10`);
+    if (ordered.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "cc-skill-empty";
+      empty.textContent = "Esta barra não possui skills ofensivas disponíveis.";
+      this.#ccSkillList.replaceChildren(empty);
+      return;
+    }
+
+    const rows = ordered.map((skill) => {
+      const enabled = selected.has(skill.slot);
+      const selectedIndex = selectedSlots.indexOf(skill.slot);
+      const row = document.createElement("article");
+      row.className = `cc-skill-row${enabled ? " is-enabled" : ""}`;
+      row.dataset.skillSlot = String(skill.slot);
+
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "cc-skill-toggle";
+      toggle.setAttribute("aria-pressed", String(enabled));
+      toggle.setAttribute("aria-label", `${enabled ? "Remover" : "Adicionar"} ${skill.name} da rotação`);
+      toggle.title = toggle.getAttribute("aria-label") ?? "";
+      toggle.textContent = enabled ? String(selectedIndex + 1) : "";
+      toggle.addEventListener("click", () => {
+        const next = enabled
+          ? selectedSlots.filter((slot) => slot !== skill.slot)
+          : [...selectedSlots, skill.slot].slice(0, 10);
+        this.onAutoCombatSkillSlotsChanged?.(next);
+      });
+
+      const icon = document.createElement("i");
+      icon.className = "cc-skill-icon";
+      if (skill.classicIndex !== undefined) {
+        const iconIndex = Math.max(0, Math.min(152, Math.trunc(skill.classicIndex)));
+        icon.style.setProperty("--cc-skill-icon-x", `${-(iconIndex % 16) * 24}px`);
+        icon.style.setProperty("--cc-skill-icon-y", `${-Math.floor(iconIndex / 16) * 24}px`);
+      }
+
+      const copy = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = skill.name;
+      const details = document.createElement("small");
+      details.textContent = `ATALHO ${skill.slot} · ${skill.mana} MP`;
+      copy.append(name, details);
+
+      const order = document.createElement("div");
+      order.className = "cc-skill-order";
+      const up = createMacroOrderButton("↑", `Subir ${skill.name}`, enabled && selectedIndex > 0, () => {
+        const next = [...selectedSlots];
+        [next[selectedIndex - 1], next[selectedIndex]] = [next[selectedIndex]!, next[selectedIndex - 1]!];
+        this.onAutoCombatSkillSlotsChanged?.(next);
+      });
+      const down = createMacroOrderButton("↓", `Descer ${skill.name}`, enabled && selectedIndex < selectedSlots.length - 1, () => {
+        const next = [...selectedSlots];
+        [next[selectedIndex], next[selectedIndex + 1]] = [next[selectedIndex + 1]!, next[selectedIndex]!];
+        this.onAutoCombatSkillSlotsChanged?.(next);
+      });
+      order.append(up, down);
+      row.append(toggle, icon, copy, order);
+      return row;
+    });
+    this.#ccSkillList.replaceChildren(...rows);
+  }
+
+  setMounted(active: boolean, name = "Javali"): void {
+    const element = document.querySelector<HTMLElement>("#mount-status");
+    element?.classList.toggle("is-active", active);
+    const label = element?.querySelector<HTMLElement>("span");
+    if (label) label.textContent = active ? name : "Montaria";
+  }
+
+  private async ensureSkillCatalog(): Promise<void> {
+    if (this.#skillCatalog) {
+      this.renderSkillCatalog();
+      return;
+    }
+    if (this.#skillCatalogJob) return this.#skillCatalogJob;
+    this.#skillCatalogStatus.textContent = "Lendo SkillData.bin…";
+    const job = fetch("/game-data/classic/data/skills.json")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        this.#skillCatalog = await response.json() as ClassicSkillCatalog;
+        this.#skillClassSelect.replaceChildren(...this.#skillCatalog.classes.map((entry) => {
+          const option = document.createElement("option");
+          option.value = entry.key;
+          option.textContent = entry.name;
+          return option;
+        }));
+        this.#skillClassSelect.value = this.#skillCatalog.classes.some((entry) => entry.key === this.#activeClassKey)
+          ? this.#activeClassKey
+          : (this.#skillCatalog.classes[0]?.key ?? "");
+        this.renderSkillCatalog();
+      })
+      .catch((error: unknown) => {
+        console.warn("Catálogo clássico de skills indisponível", error);
+        this.#skillCatalogStatus.textContent = "Execute bun run import:skills";
+      })
+      .finally(() => {
+        this.#skillCatalogJob = null;
+      });
+    this.#skillCatalogJob = job;
+    return job;
+  }
+
+  private renderSkillCatalog(): void {
+    const catalog = this.#skillCatalog;
+    if (!catalog) return;
+    const selectedClass = catalog.classes.find((entry) => entry.key === this.#skillClassSelect.value)
+      ?? catalog.classes[0];
+    if (!selectedClass) return;
+    const allowed = new Set([...selectedClass.skills, ...selectedClass.masterSkills]);
+    const classSkills = catalog.skills.filter((skill) => allowed.has(skill.index));
+    const specialIndexes = new Set(catalog.specialSkills
+      ?? catalog.skills
+        .filter((skill) => skill.category === "special" && skill.index <= 104)
+        .map((skill) => skill.index));
+    const specialSkills = catalog.skills
+      .filter((skill) => specialIndexes.has(skill.index))
+      .sort((left, right) => left.index - right.index);
+    const alwaysLearned = new Set(catalog.alwaysLearnedSkills ?? [101]);
+    const columns = [1, 2, 3].map((mastery) => {
+      const column = document.createElement("section");
+      column.className = "skill-mastery-column";
+      const heading = document.createElement("h3");
+      heading.textContent = selectedClass.masteries[mastery - 1] ?? `Linhagem ${mastery}`;
+      column.appendChild(heading);
+      const entries = classSkills
+        .filter((skill) => skill.mastery === mastery)
+        .sort((left, right) => (
+          Number(left.category === "master") - Number(right.category === "master")
+          || (left.masterySlot ?? 0) - (right.masterySlot ?? 0)
+        ));
+      for (const skill of entries) {
+        const canUse = selectedClass.key === this.#activeClassKey && this.#runtimeSkillIndices.has(skill.index);
+        column.appendChild(createSkillCatalogEntry(
+          skill,
+          false,
+          canUse ? () => this.onCatalogSkillUse?.(skill.index) : undefined,
+        ));
+      }
+      return column;
+    });
+    const specialColumn = document.createElement("section");
+    specialColumn.className = "skill-mastery-column is-special";
+    const specialHeading = document.createElement("h3");
+    specialHeading.textContent = "Especiais / Passivas";
+    specialColumn.appendChild(specialHeading);
+    for (const skill of specialSkills) {
+      const canUse = selectedClass.key === this.#activeClassKey && this.#runtimeSkillIndices.has(skill.index);
+      specialColumn.appendChild(createSkillCatalogEntry(
+        skill,
+        alwaysLearned.has(skill.index),
+        canUse ? () => this.onCatalogSkillUse?.(skill.index) : undefined,
+      ));
+    }
+    columns.push(specialColumn);
+    this.#skillCatalogStatus.textContent = `${selectedClass.name} · ${classSkills.length + specialSkills.length} skills · dados do cliente clássico`;
+    this.#skillCatalogGrid.replaceChildren(...columns);
+  }
+
+  private renderPlayer(snapshot: PlayerSnapshot): void {
+    this.#lastSnapshot = snapshot;
+    setText("#player-name", snapshot.name);
+    setText("#player-level", `Lv. ${snapshot.level}`);
+    setText("#player-hp-text", `${snapshot.hp} / ${snapshot.maxHp}`);
+    setText("#player-mp-text", `${snapshot.mp} / ${snapshot.maxMp}`);
+    setText("#player-exp-text", `${snapshot.experience} / ${snapshot.nextLevelExperience}`);
+    setText("#player-coins", snapshot.coins.toLocaleString("pt-BR"));
+    setWidth("#player-hp-fill", ratio(snapshot.hp, snapshot.maxHp));
+    setWidth("#player-mp-fill", ratio(snapshot.mp, snapshot.maxMp));
+    setWidth("#player-exp-fill", ratio(snapshot.experience, snapshot.nextLevelExperience));
+    const playerPanel = document.querySelector<HTMLElement>(".player-status");
+    playerPanel?.style.setProperty("--hp-empty", `${(1 - ratio(snapshot.hp, snapshot.maxHp)) * 100}%`);
+    playerPanel?.style.setProperty("--mp-empty", `${(1 - ratio(snapshot.mp, snapshot.maxMp)) * 100}%`);
+    const firstConsumable = snapshot.inventory.find((stack) => stack?.item.kind === "consumable");
+    setText("#quickslot-1-count", firstConsumable ? String(firstConsumable.quantity) : "");
+    this.renderCharacter(snapshot);
+    this.updateInventory(snapshot);
+  }
+
+  private renderCharacter(snapshot: PlayerSnapshot): void {
+    setText("#character-name", snapshot.name);
+    setText("#character-level", String(snapshot.level));
+    setText("#character-points", String(snapshot.freeAttributePoints));
+    setText("#character-exp-total", formatNumber(snapshot.totalExperience));
+    setText("#character-exp-next", formatNumber(snapshot.nextLevelTotalExperience));
+    setText("#character-exp-current", `${formatNumber(snapshot.experience)} / ${formatNumber(snapshot.nextLevelExperience)}`);
+    setText("#character-hp", `${snapshot.hp} / ${snapshot.maxHp}`);
+    setText("#character-mp", `${snapshot.mp} / ${snapshot.maxMp}`);
+    setText("#character-attack", String(snapshot.attack));
+    setText("#character-defense", String(snapshot.defense));
+    setText("#character-coins", formatNumber(snapshot.coins));
+    setText("#character-offline-note", `Frontend offline: +${snapshot.offlineAttributePointsPerLevel} pontos e +3 ATQ por nível`);
+    for (const attribute of PRIMARY_ATTRIBUTES) {
+      setText(`#character-${attribute}`, String(snapshot.primaryAttributes[attribute]));
+      const button = document.querySelector<HTMLButtonElement>(`[data-character-attribute="${attribute}"]`);
+      if (button) button.disabled = !snapshot.alive || snapshot.freeAttributePoints <= 0;
+    }
+    this.#characterPanel.classList.toggle("has-free-points", snapshot.freeAttributePoints > 0);
+  }
+
+  private ensureItemIconCatalog(): Promise<ClassicItemIconCatalog | null> {
+    if (this.#itemIconCatalogJob) return this.#itemIconCatalogJob;
+    this.#itemIconCatalogJob = fetch("/game-data/classic/ui/item-icons.json")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const catalog = await response.json() as ClassicItemIconCatalog;
+        if (
+          catalog.cellSize !== 35
+          || catalog.columns <= 0
+          || catalog.iconsPerAtlas <= 0
+          || !Array.isArray(catalog.atlases)
+          || !Array.isArray(catalog.itemToIcon)
+        ) {
+          throw new Error("catálogo incompatível");
+        }
+        this.#itemIconCatalog = catalog;
+        if (this.#lastSnapshot) this.updateInventory(this.#lastSnapshot, true);
+        return catalog;
+      })
+      .catch((error: unknown) => {
+        console.warn("Ícones clássicos do inventário indisponíveis", error);
+        return null;
+      });
+    return this.#itemIconCatalogJob;
+  }
+
+  private setInventoryPreview(item: InventoryItem | null): void {
+    this.#inventoryPreview.classList.toggle("has-item", item !== null);
+    this.#inventoryPreview.setAttribute("aria-hidden", String(item === null));
+    const fallback = document.querySelector<HTMLElement>("#inventory-preview-fallback");
+    if (fallback) {
+      const icon = item ? this.resolveInventoryIcon(item) : null;
+      const scale = 3;
+      fallback.style.backgroundImage = icon ? `url("/game-data/classic/ui/${icon.atlas}")` : "";
+      fallback.style.backgroundPosition = icon
+        ? `${-icon.column * icon.cellSize * scale}px ${-icon.row * icon.cellSize * scale}px`
+        : "";
+      fallback.style.backgroundSize = icon
+        ? `${icon.columns * icon.cellSize * scale}px auto`
+        : "";
+      fallback.classList.toggle("has-classic-icon", icon !== null);
+      fallback.textContent = icon || !item ? "" : item.name.slice(0, 2).toUpperCase();
+    }
+    this.onInventoryPreview?.(item);
+  }
+
+  private updateInventory(snapshot: PlayerSnapshot, force = false): void {
+    const signature = inventorySnapshotSignature(snapshot.inventory, snapshot.equipment);
+    if (!force && signature === this.#inventorySignature) return;
+    this.#inventorySignature = signature;
+    this.renderInventory(snapshot);
+  }
+
+  private renderInventory(snapshot: PlayerSnapshot): void {
+    const bagStart = this.#activeInventoryBag * INVENTORY_BAG_SIZE;
+    const bagCells = Array.from({ length: INVENTORY_BAG_SIZE }, (_, offset) => {
+      const slot = bagStart + offset;
+      return this.createInventoryCell(
+        { kind: "inventory", slot },
+        snapshot.inventory[slot] ?? null,
+      );
+    });
+    const equipmentCells = EQUIPMENT_SLOTS.map((slot) => this.createInventoryCell(
+      { kind: "equipment", slot },
+      snapshot.equipment[slot],
+    ));
+    this.#inventoryGrid.replaceChildren(...bagCells);
+    this.#inventoryEquipment.replaceChildren(...equipmentCells);
+    this.updateInventoryBagButtons(snapshot);
+
+    const selected = this.#selectedInventorySource;
+    const selectedStack = selected?.kind === "inventory"
+      ? snapshot.inventory[selected.slot]
+      : selected
+        ? snapshot.equipment[selected.slot]
+        : null;
+    const selectedAnchor = selected ? this.findInventorySourceElement(selected) : null;
+    const selectedItem = selectedStack?.item.key === this.#selectedInventoryItemKey
+      ? selectedStack.item
+      : null;
+    if (selectedItem) {
+      if (selectedAnchor) {
+        selectedAnchor.classList.add("is-selected");
+        selectedAnchor.setAttribute("aria-pressed", "true");
+      }
+      this.setInventoryPreview(selectedItem);
+    } else if (selected) {
+      this.clearInventorySelection();
+    }
+  }
+
+  private createInventoryCell(
+    source: InventoryItemSource,
+    stack: Readonly<InventoryStack> | null,
+  ): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = source.kind === "inventory" ? "inventory-slot" : "equipment-slot";
+    if (source.kind === "inventory") {
+      button.dataset.inventorySlot = String(source.slot);
+    } else {
+      button.dataset.equipmentSlot = source.slot;
+    }
+    if (!stack) {
+      const label = source.kind === "inventory"
+        ? `Espaço vazio ${source.slot % INVENTORY_BAG_SIZE + 1} da bolsa ${this.#activeInventoryBag + 1}`
+        : `${EQUIPMENT_SLOT_LABELS[source.slot]} vazio`;
+      button.setAttribute("aria-label", label);
+      button.title = source.kind === "equipment" ? label : "Espaço vazio";
+      button.addEventListener("click", () => {
+        if (this.consumeSuppressedInventoryClick()) return;
+        this.handleInventoryCellClick(source, null, button);
+      });
+      return button;
+    }
+
+    button.classList.add(`rarity-${stack.item.rarity}`);
+    button.setAttribute(
+      "aria-label",
+      `${stack.item.name}, quantidade ${stack.quantity}. ${stack.item.description}`,
+    );
+    button.setAttribute("aria-pressed", "false");
+    button.title = source.kind === "inventory"
+      ? `${stack.item.name}\nClique: pegar/preview · mova o cursor e clique para soltar · duplo clique: ${stack.item.kind === "equipment" ? "equipar" : "usar"}`
+      : `${stack.item.name}\nClique: pegar/preview · mova o cursor e clique em uma bolsa para retirar`;
+
+    const icon = this.createInventoryIcon(stack.item);
+    const quantity = document.createElement("small");
+    quantity.textContent = stack.quantity > 1 ? String(stack.quantity) : "";
+    const refinement = document.createElement("b");
+    refinement.className = "inventory-item-refinement";
+    refinement.textContent = stack.item.refinement ? `+${stack.item.refinement}` : "";
+    refinement.classList.toggle("is-high", (stack.item.refinement ?? 0) > 9);
+    button.append(icon, refinement, quantity);
+
+    button.addEventListener("click", () => {
+      if (this.consumeSuppressedInventoryClick()) return;
+      this.handleInventoryCellClick(source, stack.item, button);
+    });
+    button.addEventListener("pointerdown", (event) => {
+      this.beginInventoryPointerDrag(event, source, stack.item, button);
+    });
+    button.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      if (source.kind === "inventory") {
+        if (stack.item.kind === "equipment") {
+          if (this.#state?.equipInventorySlot(source.slot)) {
+            this.addLog(`${stack.item.name} equipado.`, "system");
+          }
+          return;
+        }
+        if (this.#state?.useInventorySlot(source.slot)) {
+          this.addLog(`${stack.item.name} utilizado.`, "system");
+        }
+        return;
+      }
+      if (this.#state?.unequipEquipmentSlot(source.slot)) {
+        this.addLog(`${stack.item.name} guardado no inventário.`, "system");
+      }
+    });
+    return button;
+  }
+
+  private updateInventoryBagButtons(snapshot: PlayerSnapshot): void {
+    for (const button of this.#inventoryBags.querySelectorAll<HTMLButtonElement>("[data-inventory-bag]")) {
+      const bag = Number(button.dataset.inventoryBag);
+      const start = bag * INVENTORY_BAG_SIZE;
+      const used = snapshot.inventory.slice(start, start + INVENTORY_BAG_SIZE).filter(Boolean).length;
+      const active = bag === this.#activeInventoryBag;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+      button.setAttribute("aria-label", `Abrir bolsa ${bag + 1}, ${used} de ${INVENTORY_BAG_SIZE} espaços ocupados`);
+    }
+  }
+
+  private setActiveInventoryBag(bag: number): void {
+    if (bag === this.#activeInventoryBag) return;
+    this.cancelInventoryPointerDrag();
+    this.#activeInventoryBag = bag;
+    if (this.#lastSnapshot) this.renderInventory(this.#lastSnapshot);
+  }
+
+  private handleInventoryCellClick(
+    destination: InventoryItemSource,
+    destinationItem: InventoryItem | null,
+    anchor: HTMLButtonElement,
+  ): void {
+    const selectedSource = this.#selectedInventorySource;
+    if (selectedSource) {
+      if (sameInventorySource(selectedSource, destination)) {
+        this.clearInventorySelection();
+        return;
+      }
+      const selectedItem = this.selectedInventoryItem();
+      if (!selectedItem) {
+        this.clearInventorySelection();
+      } else {
+        this.finishInventoryDrop(selectedSource, selectedItem, destination);
+        return;
+      }
+    }
+    if (destinationItem) this.selectInventoryItem(destination, destinationItem, anchor);
+    else this.clearInventorySelection();
+  }
+
+  private selectInventoryItem(
+    source: InventoryItemSource,
+    item: InventoryItem,
+    anchor: HTMLButtonElement,
+    toggle = false,
+  ): void {
+    if (sameInventorySource(this.#selectedInventorySource, source) && this.#selectedInventoryItemKey === item.key) {
+      if (toggle) {
+        this.clearInventorySelection();
+        return;
+      }
+      this.positionInventoryPreview(anchor);
+      return;
+    }
+    this.#selectedInventorySource = source;
+    this.#selectedInventoryItemKey = item.key;
+    this.#inventory.classList.add("is-carrying");
+    for (const cell of this.#inventory.querySelectorAll<HTMLButtonElement>(".inventory-slot, .equipment-slot")) {
+      const selected = cell === anchor;
+      cell.classList.toggle("is-selected", selected);
+      if (cell.hasAttribute("aria-pressed")) cell.setAttribute("aria-pressed", String(selected));
+    }
+    this.positionInventoryPreview(anchor);
+    this.setInventoryPreview(item);
+  }
+
+  private clearInventorySelection(): void {
+    this.#selectedInventorySource = null;
+    this.#selectedInventoryItemKey = null;
+    this.#inventory.classList.remove("is-carrying");
+    for (const cell of this.#inventory.querySelectorAll<HTMLButtonElement>(".inventory-slot.is-selected, .equipment-slot.is-selected")) {
+      cell.classList.remove("is-selected");
+      cell.setAttribute("aria-pressed", "false");
+    }
+    this.setInventoryPreview(null);
+  }
+
+  private selectedInventoryItem(): InventoryItem | null {
+    const source = this.#selectedInventorySource;
+    const snapshot = this.#lastSnapshot;
+    if (!source || !snapshot) return null;
+    const stack = source.kind === "inventory"
+      ? snapshot.inventory[source.slot]
+      : snapshot.equipment[source.slot];
+    return stack?.item.key === this.#selectedInventoryItemKey ? stack.item : null;
+  }
+
+  private findInventorySourceElement(source: InventoryItemSource): HTMLButtonElement | null {
+    const selector = source.kind === "inventory"
+      ? `[data-inventory-slot="${source.slot}"]`
+      : `[data-equipment-slot="${source.slot}"]`;
+    return this.#inventory.querySelector<HTMLButtonElement>(selector);
+  }
+
+  private beginInventoryPointerDrag(
+    event: PointerEvent,
+    source: InventoryItemSource,
+    item: InventoryItem,
+    anchor: HTMLButtonElement,
+  ): void {
+    if (!event.isPrimary || event.button !== 0) return;
+    this.cancelInventoryPointerDrag();
+    this.#inventoryPointerDrag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      source,
+      item,
+      anchor,
+      moved: false,
+      ghost: null,
+    };
+    anchor.setPointerCapture?.(event.pointerId);
+  }
+
+  private readonly inventoryPointerMove = (event: PointerEvent): void => {
+    const drag = this.#inventoryPointerDrag;
+    if (!drag) {
+      if (
+        this.#selectedInventorySource
+        && this.#inventory.classList.contains("is-visible")
+        && event.pointerType !== "touch"
+      ) {
+        this.positionInventoryPreviewAt(event.clientX, event.clientY);
+      }
+      return;
+    }
+    if (drag.pointerId !== event.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 6) {
+      drag.moved = true;
+      drag.anchor.classList.add("is-drag-source");
+      this.#inventory.classList.add("is-dragging");
+      this.clearInventorySelection();
+      drag.ghost = drag.anchor.cloneNode(true) as HTMLElement;
+      drag.ghost.classList.remove("is-selected", "is-drag-source");
+      drag.ghost.classList.add("inventory-drag-ghost");
+      drag.ghost.removeAttribute("id");
+      drag.ghost.setAttribute("aria-hidden", "true");
+      document.body.appendChild(drag.ghost);
+    }
+    if (!drag.moved || !drag.ghost) return;
+    event.preventDefault();
+    drag.ghost.style.left = `${event.clientX + 9}px`;
+    drag.ghost.style.top = `${event.clientY + 9}px`;
+  };
+
+  private readonly inventoryPointerUp = (event: PointerEvent): void => {
+    const drag = this.#inventoryPointerDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.moved) {
+      this.cancelInventoryPointerDrag();
+      return;
+    }
+    event.preventDefault();
+    this.#suppressInventoryClick = true;
+    window.setTimeout(() => {
+      this.#suppressInventoryClick = false;
+    }, 0);
+    const dropElement = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-inventory-slot], [data-equipment-slot]") ?? null;
+    const destination = dropElement ? inventorySourceFromElement(dropElement) : null;
+    this.finishInventoryDrop(drag.source, drag.item, destination);
+    this.cancelInventoryPointerDrag();
+  };
+
+  private readonly inventoryPointerCancel = (event: PointerEvent): void => {
+    if (this.#inventoryPointerDrag?.pointerId === event.pointerId) this.cancelInventoryPointerDrag();
+  };
+
+  private finishInventoryDrop(
+    source: InventoryItemSource,
+    item: InventoryItem,
+    destination: InventoryItemSource | null,
+  ): boolean {
+    if (!destination || sameInventorySource(source, destination)) return false;
+    if (source.kind === "inventory" && destination.kind === "inventory") {
+      const moved = this.#state?.moveInventoryItem(source.slot, destination.slot) ?? false;
+      if (moved) this.addLog(`${item.name} movido.`, "system");
+      return moved;
+    }
+    if (source.kind === "inventory" && destination.kind === "equipment") {
+      if (item.equipSlot !== destination.slot) {
+        this.addLog(`${item.name} não pode ser equipado em ${EQUIPMENT_SLOT_LABELS[destination.slot]}.`, "system");
+        return false;
+      }
+      const equipped = this.#state?.equipInventorySlot(source.slot) ?? false;
+      if (equipped) this.addLog(`${item.name} equipado.`, "system");
+      return equipped;
+    }
+    if (source.kind === "equipment" && destination.kind === "inventory") {
+      const occupied = this.#lastSnapshot?.inventory[destination.slot] ?? null;
+      if (occupied) {
+        this.addLog("Escolha um espaço vazio para guardar o equipamento.", "system");
+        return false;
+      }
+      const unequipped = this.#state?.unequipEquipmentSlot(source.slot, destination.slot) ?? false;
+      if (unequipped) {
+        this.addLog(`${item.name} guardado na bolsa ${Math.floor(destination.slot / INVENTORY_BAG_SIZE) + 1}.`, "system");
+      }
+      return unequipped;
+    }
+    return false;
+  }
+
+  private cancelInventoryPointerDrag(): void {
+    const drag = this.#inventoryPointerDrag;
+    if (!drag) return;
+    if (drag.anchor.hasPointerCapture?.(drag.pointerId)) drag.anchor.releasePointerCapture(drag.pointerId);
+    drag.anchor.classList.remove("is-drag-source");
+    drag.ghost?.remove();
+    this.#inventory.classList.remove("is-dragging");
+    this.#inventoryPointerDrag = null;
+  }
+
+  private consumeSuppressedInventoryClick(): boolean {
+    if (!this.#suppressInventoryClick) return false;
+    this.#suppressInventoryClick = false;
+    return true;
+  }
+
+  private positionInventoryPreview(anchor: HTMLElement): void {
+    const anchorRect = anchor.getBoundingClientRect();
+    this.positionInventoryPreviewAt(
+      anchorRect.left + anchorRect.width / 2,
+      anchorRect.top + anchorRect.height / 2,
+    );
+  }
+
+  private positionInventoryPreviewAt(clientX: number, clientY: number): void {
+    const panelRect = this.#inventory.getBoundingClientRect();
+    const scaleX = panelRect.width / Math.max(1, this.#inventory.offsetWidth);
+    const scaleY = panelRect.height / Math.max(1, this.#inventory.offsetHeight);
+    const left = (clientX - panelRect.left) / Math.max(scaleX, 0.001);
+    const top = (clientY - panelRect.top) / Math.max(scaleY, 0.001);
+    this.#inventoryPreview.style.setProperty("--inventory-preview-left", `${Math.round(left)}px`);
+    this.#inventoryPreview.style.setProperty("--inventory-preview-top", `${Math.round(top)}px`);
+  }
+
+  private readonly chatGlobalKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === "Escape" && this.#ccPanel.classList.contains("is-visible")) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.toggleAutoCombatPanel(false);
+      return;
+    }
+    if (event.code === "Escape" && this.#gameMenu.classList.contains("is-visible")) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.toggleGameMenu(false);
+      return;
+    }
+    if (event.code !== "Enter" || event.repeat || isTextEntry(event.target)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.openChat();
+  };
+
+  private readonly chatInputKeyDown = (event: KeyboardEvent): void => {
+    event.stopPropagation();
+    if (event.code === "Escape") {
+      event.preventDefault();
+      this.closeChat(true);
+      return;
+    }
+    if (event.code === "Enter") {
+      event.preventDefault();
+      this.submitChat();
+      return;
+    }
+    if (event.code === "ArrowUp") {
+      event.preventDefault();
+      this.recallChatHistory(-1);
+      return;
+    }
+    if (event.code === "ArrowDown") {
+      event.preventDefault();
+      this.recallChatHistory(1);
+    }
+  };
+
+  private openChat(): void {
+    this.toggleGameMenu(false);
+    this.toggleAutoCombatPanel(false);
+    this.#chatShell.classList.add("is-chatting");
+    this.#chatHistoryCursor = this.#chatHistory.length;
+    this.#chatInput.placeholder = "Digite a mensagem…";
+    this.#chatInput.focus({ preventScroll: true });
+  }
+
+  private closeChat(clear: boolean): void {
+    if (clear) this.#chatInput.value = "";
+    this.#chatInput.blur();
+    this.#chatShell.classList.remove("is-chatting");
+    this.#chatInput.placeholder = "Pressione Enter para conversar";
+    this.#chatHistoryCursor = this.#chatHistory.length;
+  }
+
+  private submitChat(): void {
+    const raw = this.#chatInput.value.trim();
+    if (!raw) {
+      this.closeChat(true);
+      return;
+    }
+    const parsed = parseClassicChatPrefix(raw, this.#chatChannel);
+    if (!parsed.message) {
+      this.closeChat(true);
+      return;
+    }
+    this.setChatChannel(parsed.channel);
+    if (this.#chatHistory.at(-1) !== raw) {
+      this.#chatHistory.push(raw);
+      while (this.#chatHistory.length > 5) this.#chatHistory.shift();
+    }
+    const author = this.#lastSnapshot?.name ?? "Jogador";
+    if (this.onChatSubmit) this.onChatSubmit(parsed.message, parsed.channel);
+    else this.addChatMessage(author, parsed.message, parsed.channel);
+    this.closeChat(true);
+  }
+
+  private recallChatHistory(direction: -1 | 1): void {
+    if (this.#chatHistory.length === 0) return;
+    this.#chatHistoryCursor = Math.max(
+      0,
+      Math.min(this.#chatHistory.length, this.#chatHistoryCursor + direction),
+    );
+    this.#chatInput.value = this.#chatHistory[this.#chatHistoryCursor] ?? "";
+    this.#chatInput.setSelectionRange(this.#chatInput.value.length, this.#chatInput.value.length);
+  }
+
+  private setChatChannel(channel: ChatChannel): void {
+    this.#chatChannel = channel;
+    this.#chatChannelLabel.textContent = CHAT_CHANNEL_LABELS[channel];
+    for (const button of document.querySelectorAll<HTMLButtonElement>("[data-chat-channel]")) {
+      const active = button.dataset.chatChannel === channel;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+    }
+  }
+
+  private runGameMenuAction(action: string): void {
+    this.toggleGameMenu(false);
+    if (action === "character") this.toggleCharacter(true);
+    if (action === "inventory") this.toggleInventory(true);
+    if (action === "skills") this.toggleSkills(true);
+    if (action === "macro") this.toggleAutoCombatPanel(true);
+    if (action === "server") {
+      this.addLog("Selecionar servidor aguarda a camada de rede.", "system");
+    }
+    if (action === "character-select") {
+      this.addLog("Selecionar personagem aguarda sessão autoritativa do servidor.", "system");
+    }
+    if (action === "quit") {
+      this.addLog("Encerrar a sessão ficará disponível com a camada de rede.", "system");
+    }
+  }
+
+  private trimChatLog(): void {
+    while (this.#combatLog.childElementCount > 10) this.#combatLog.firstElementChild?.remove();
+  }
+
+  private createInventoryIcon(item: InventoryItem): HTMLElement {
+    const fallback = document.createElement("span");
+    fallback.className = "inventory-item-mark";
+    fallback.textContent = item.name.slice(0, 2).toUpperCase();
+    const resolved = this.resolveInventoryIcon(item);
+    if (!resolved) return fallback;
+    const icon = document.createElement("span");
+    icon.className = "inventory-item-icon";
+    icon.style.backgroundImage = `url("/game-data/classic/ui/${resolved.atlas}")`;
+    icon.style.backgroundPosition = `${-resolved.column * resolved.cellSize}px ${-resolved.row * resolved.cellSize}px`;
+    icon.setAttribute("aria-hidden", "true");
+    return icon;
+  }
+
+  private resolveInventoryIcon(item: InventoryItem): {
+    readonly atlas: string;
+    readonly column: number;
+    readonly row: number;
+    readonly cellSize: number;
+    readonly columns: number;
+  } | null {
+    const catalog = this.#itemIconCatalog;
+    if (!catalog || item.classicIndex === undefined) return null;
+    const globalIndex = catalog.itemToIcon[item.classicIndex] ?? -1;
+    if (globalIndex < 0) return null;
+    const atlasIndex = Math.floor(globalIndex / catalog.iconsPerAtlas);
+    const atlas = catalog.atlases[atlasIndex];
+    if (!atlas) return null;
+    const localIndex = globalIndex % catalog.iconsPerAtlas;
+    return {
+      atlas,
+      column: localIndex % catalog.columns,
+      row: Math.floor(localIndex / catalog.columns),
+      cellSize: catalog.cellSize,
+      columns: catalog.columns,
+    };
+  }
+}
+
+function createSkillCatalogEntry(
+  skill: ClassicSkillCatalogEntry,
+  learned = false,
+  onUse?: () => void,
+): HTMLElement {
+  const entry = document.createElement("article");
+  entry.className = `skill-catalog-entry is-${skill.kind}${skill.category === "master" ? " is-master" : ""}${learned ? " is-learned" : ""}${onUse ? " is-castable" : ""}`;
+  entry.title = `#${skill.index} · ${skill.name}\nMP ${skill.manaSpent} · delay ${skill.delaySeconds}s · alcance ${skill.range}`;
+  const icon = document.createElement("i");
+  if (skill.iconIndex !== null) {
+    const iconIndex = Math.max(0, Math.min(152, Math.trunc(skill.iconIndex)));
+    icon.style.setProperty("--catalog-icon-x", `${-(iconIndex % 16) * 32}px`);
+    icon.style.setProperty("--catalog-icon-y", `${-Math.floor(iconIndex / 16) * 32}px`);
+  } else {
+    icon.classList.add("is-missing");
+  }
+  const copy = document.createElement("div");
+  const name = document.createElement("strong");
+  name.textContent = skill.name;
+  const details = document.createElement("small");
+  const kind = skill.kind === "active" ? "ATIVA" : (skill.kind === "buff" ? "BUFF" : "PASSIVA");
+  details.textContent = `${kind}${learned ? " · APRENDIDA" : ""} · MP ${skill.manaSpent} · CD ${skill.delaySeconds}s · R ${skill.range}${onUse ? " · USAR" : ""}`;
+  copy.append(name, details);
+  const index = document.createElement("b");
+  index.textContent = `#${skill.index}`;
+  entry.append(icon, copy, index);
+  if (onUse) {
+    entry.tabIndex = 0;
+    entry.setAttribute("role", "button");
+    entry.setAttribute("aria-label", `Usar ${skill.name}`);
+    entry.addEventListener("click", onUse);
+    entry.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      onUse();
+    });
+  }
+  return entry;
+}
+
+function createMacroOrderButton(
+  label: string,
+  ariaLabel: string,
+  enabled: boolean,
+  onClick: () => void,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.disabled = !enabled;
+  button.setAttribute("aria-label", ariaLabel);
+  button.title = ariaLabel;
+  if (enabled) button.addEventListener("click", onClick);
+  return button;
+}
+
+function isMacroHudSkill(skill: SkillHudEntry): boolean {
+  return skill.slot >= 1 && skill.slot <= 9 && skill.offensive === true;
+}
+
+function requireElement<T extends Element>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) throw new Error(`HUD: elemento ${selector} ausente`);
+  return element;
+}
+
+function setText(selector: string, value: string): void {
+  const element = document.querySelector<HTMLElement>(selector);
+  if (element) element.textContent = value;
+}
+
+function setWidth(selector: string, value: number): void {
+  const element = document.querySelector<HTMLElement>(selector);
+  if (element) element.style.width = `${value * 100}%`;
+}
+
+function ratio(value: number, maximum: number): number {
+  return maximum <= 0 ? 0 : Math.max(0, Math.min(1, value / maximum));
+}
+
+const PRIMARY_ATTRIBUTES = ["str", "int", "dex", "con"] as const satisfies readonly PrimaryAttribute[];
+const CHAT_CHANNELS = ["general", "party", "guild"] as const satisfies readonly ChatChannel[];
+const CHAT_CHANNEL_LABELS: Readonly<Record<ChatChannel, string>> = {
+  general: "Todos",
+  party: "Grupo",
+  guild: "Guild",
+};
+const AUTO_COMBAT_LABELS: Readonly<Record<AutoCombatMode, {
+  readonly compact: string;
+  readonly title: string;
+  readonly status: string;
+}>> = {
+  off: { compact: "C.C OFF", title: "desligado", status: "C.C desligado" },
+  physical: { compact: "C.C FÍSICO", title: "dano físico", status: "Modo 1 · ataque físico automático" },
+  magic: { compact: "C.C MÁGICO", title: "mágico", status: "Modo 2 · rotação de skills da barra" },
+  support: { compact: "C.C SUPORTE", title: "suporte", status: "Modo 3 · buffs e recuperação, sem ataque" },
+};
+const AUTO_COMBAT_POSITION_LABELS: Readonly<Record<AutoCombatPositionMode, {
+  readonly title: string;
+  readonly aria: string;
+}>> = {
+  continuous: { title: "Contínua", aria: "Movimentação contínua" },
+  fixed: { title: "Fixa", aria: "Movimentação fixa na posição atual" },
+  stationary: { title: "Parada", aria: "Movimentação parada" },
+};
+
+function clampAutoCombatThreshold(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(90, Math.round(value / 10) * 10));
+}
+const EQUIPMENT_SLOT_LABELS: Readonly<Record<EquipmentSlot, string>> = {
+  helmet: "Elmo",
+  armor: "Armadura",
+  pants: "Calça",
+  gloves: "Luva",
+  boots: "Bota",
+  leftHand: "Mão esquerda",
+  rightHand: "Mão direita",
+  ring: "Anel",
+  necklace: "Colar",
+  orb: "Orbe",
+  cabuncle: "Cabúnculo",
+  costume: "Traje",
+  familiar: "Familiar",
+  mount: "Montaria",
+  cape: "Mantua",
+};
+
+function parseChatChannel(value: string | undefined): ChatChannel | null {
+  return CHAT_CHANNELS.find((channel) => channel === value) ?? null;
+}
+
+/** Prefixos mantidos pelo SEditableText clássico: '=' grupo e '-' guild. */
+function parseClassicChatPrefix(
+  raw: string,
+  fallback: ChatChannel,
+): { readonly channel: ChatChannel; readonly message: string } {
+  if (raw.startsWith("=")) return { channel: "party", message: raw.slice(1).trim() };
+  if (raw.startsWith("-")) return { channel: "guild", message: raw.replace(/^-{1,2}/, "").trim() };
+  return { channel: fallback, message: raw };
+}
+
+function isTextEntry(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || (target instanceof HTMLElement && target.isContentEditable);
+}
+
+function formatNumber(value: number): string {
+  return Math.max(0, Math.trunc(value)).toLocaleString("pt-BR");
+}
+
+function sameInventorySource(
+  left: InventoryItemSource | null,
+  right: InventoryItemSource | null,
+): boolean {
+  return left?.kind === right?.kind && left?.slot === right?.slot;
+}
+
+function inventorySourceFromElement(element: HTMLElement): InventoryItemSource | null {
+  if (element.dataset.inventorySlot !== undefined) {
+    const slot = Number(element.dataset.inventorySlot);
+    return Number.isInteger(slot) ? { kind: "inventory", slot } : null;
+  }
+  const equipmentSlot = element.dataset.equipmentSlot;
+  if (equipmentSlot && (EQUIPMENT_SLOTS as readonly string[]).includes(equipmentSlot)) {
+    return { kind: "equipment", slot: equipmentSlot as EquipmentSlot };
+  }
+  return null;
+}
+
+function inventoryStackSignature(stack: Readonly<InventoryStack> | null): string {
+  return stack
+    ? [
+        stack.item.key,
+        stack.quantity,
+        stack.item.classicIndex ?? "",
+        stack.item.previewModelType ?? "",
+        stack.item.refinement ?? "",
+        Number(stack.item.ancient ?? false),
+        stack.item.refinementTextureIndex ?? "",
+      ].join(":")
+    : "-";
+}
+
+function inventorySnapshotSignature(
+  inventory: PlayerSnapshot["inventory"],
+  equipment: PlayerSnapshot["equipment"],
+): string {
+  const inventorySignature = inventory.map(inventoryStackSignature).join("|");
+  const equipmentSignature = EQUIPMENT_SLOTS
+    .map((slot) => `${slot}:${inventoryStackSignature(equipment[slot])}`)
+    .join("|");
+  return `${inventorySignature}#${equipmentSignature}`;
+}

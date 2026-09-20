@@ -165,7 +165,7 @@ function createBridge(ws) {
 function validateDecodedFrame(packet) {
   if (packet.byteLength < 12) throw new Error("Frame menor que MSG_STANDARD");
   if (packet.byteLength >= 131072) throw new Error("Frame excede o limite CPSock");
-  const declared = packet[0]! | (packet[1]! << 8);
+  const declared = packet[0] | (packet[1] << 8);
   if (declared !== packet.byteLength) {
     throw new Error(`Frame declara ${declared} bytes e recebeu ${packet.byteLength}`);
   }

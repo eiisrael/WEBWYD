@@ -49,7 +49,7 @@ export const CLASSIC_STRUCTURE_SIZES = {
   score: 48,
   item: 8,
   selectedCharacters: 840,
-  mob: 808,
+  mob: 816,
 } as const;
 
 export const CLASSIC_PACKET_SIZES = {

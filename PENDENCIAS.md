@@ -332,7 +332,7 @@ inspeção manual focada quando houver componente visual.
 
 ## Execução pós-auditoria
 
-### P0 — protocolo/rede — **iniciado em 20/09/2026**
+### P0 — protocolo/rede — **núcleo implementado; homologação TMSrv pendente**
 
 Primeiro lote concluído:
 
@@ -345,6 +345,18 @@ Primeiro lote concluído:
 - arquitetura Browser → WSS Gateway → TMSrv documentada em
   [docs/NETWORK_PROTOCOL.md](docs/NETWORK_PROTOCOL.md).
 
-A camada ainda está isolada do `GameApp` para preservar o modo offline
-homologado. Próximo passo: dispatcher de packets, state machine de sessão e
-protótipo do gateway clássico.
+A camada continua isolada do `GameApp` para preservar o modo offline
+homologado. Dispatcher, state machine, codec CPSock e gateway clássico já foram
+implementados e testados. Falta homologar o fluxo real contra TMSrv/DBSrv antes
+de tornar login online parte do boot padrão.
+
+### P1 — replicação autoritativa de Field — **iniciado**
+
+Primeiro lote:
+
+- `MSG_CreateMob` / `MSG_CreateMobTrade`;
+- `MSG_Action` / `MSG_Action_Stop`;
+- parser de `STRUCT_MOB` Win32 com 816 bytes comprovados;
+- `ClassicFieldReplica` ligado à `ClassicSession`;
+- estado de entidades separado do Three.js para permitir migração incremental
+  do simulador offline para snapshots/ações do servidor.

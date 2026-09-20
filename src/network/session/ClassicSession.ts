@@ -9,6 +9,7 @@ import {
   type ClassicCharacterSummary,
 } from "../classic/Messages";
 import { ClassicOpcode } from "../classic/Protocol";
+import type { ClassicMobCore } from "../classic/Structures";
 import { ClassicPacketDispatcher } from "../classic/ClassicPacketDispatcher";
 import type {
   ClassicTransport,
@@ -26,6 +27,7 @@ export type ClassicSessionState =
   | "error";
 
 export interface ClassicFieldSession {
+  readonly mob: ClassicMobCore;
   readonly characterName: string;
   readonly characterClass: number;
   readonly clientId: number;
@@ -211,6 +213,7 @@ export class ClassicSession {
       throw new Error(`MSG_CNFCharacterLogin recebido no estado ${this.#state}`);
     }
     this.#field = {
+      mob: confirmation.mob,
       characterName: confirmation.characterName,
       characterClass: confirmation.characterClass,
       clientId: confirmation.clientId,

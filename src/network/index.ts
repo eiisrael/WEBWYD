@@ -1,3 +1,4 @@
+export * from "./classic/Structures";
 export * from "./classic/CPSockCodec";
 export * from "./classic/ClassicPacketDispatcher";
 export * from "./classic/Messages";

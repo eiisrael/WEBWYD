@@ -95,7 +95,7 @@ function createBridge(ws) {
         if (closed) return;
         try {
           for (const packet of decoder.push(chunk)) {
-            const type = packet[4]! | (packet[5]! << 8);
+            const type = packet[4] | (packet[5] << 8);
             if (type === ClassicOpcode.cnfAccountLogin && packet.byteLength >= 28) {
               encoder.setSendQueue(packet.subarray(12, 28));
             }

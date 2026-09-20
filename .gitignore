@@ -8,8 +8,7 @@ coverage/
 .env.*
 !.env.example
 
-# Reference/source dumps are intentionally kept outside the web runtime repo.
-BASE759/
+# BASE759 is intentionally versioned as a read-only classic reference corpus.
 
 # Bun is the canonical package manager for this project.
 package-lock.json

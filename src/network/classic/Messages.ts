@@ -53,7 +53,7 @@ export function encodeAccountLoginField(
   length: number,
   keyEndIndex: number,
 ): Uint8Array {
-  const encoded = new TextEncoder().encode(value.toUpperCase());
+  const encoded = new TextEncoder().encode(value);
   const field = new Uint8Array(length);
   field.set(encoded.subarray(0, length));
   for (let index = 0; index < length; index++) {

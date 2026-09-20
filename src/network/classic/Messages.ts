@@ -7,6 +7,7 @@ import {
 import {
   CLASSIC_APP_VERSION,
   CLASSIC_PACKET_SIZES,
+  CLASSIC_STRUCTURE_SIZES,
   ClassicOpcode,
 } from "./Protocol";
 
@@ -20,6 +21,45 @@ export interface PacketHeaderInput {
   readonly tick?: number;
   readonly keyword?: number;
   readonly checksum?: number;
+}
+
+
+export interface ClassicCharacterSummary {
+  readonly slot: number;
+  readonly name: string;
+  readonly homeTownX: number;
+  readonly homeTownY: number;
+  readonly level: number;
+  readonly guild: number;
+  readonly coin: number;
+  readonly experience: bigint;
+}
+
+export interface ClassicAccountLoginConfirmation {
+  readonly header: ClassicPacketHeader;
+  readonly secretCode: Uint8Array;
+  readonly characters: readonly ClassicCharacterSummary[];
+  readonly cargoCoin: number;
+  readonly accountName: string;
+  readonly ssn1: number;
+  readonly ssn2: number;
+}
+
+export interface ClassicCharacterLoginConfirmation {
+  readonly header: ClassicPacketHeader;
+  readonly posX: number;
+  readonly posY: number;
+  readonly characterName: string;
+  readonly characterClass: number;
+  readonly clientId: number;
+  readonly slot: number;
+  readonly weather: number;
+  readonly shortSkills: Uint8Array;
+}
+
+export interface ClassicMessagePanel {
+  readonly header: ClassicPacketHeader;
+  readonly message: string;
 }
 
 export interface ClassicActionMessage {
@@ -140,6 +180,112 @@ export function parseActionPacket(source: ArrayBuffer | ArrayBufferView): Classi
   const targetY = reader.u16();
   if (reader.remaining !== 0) throw new Error("MSG_Action contém bytes inesperados");
   return { header, posX, posY, effect, speed, route, targetX, targetY };
+}
+
+
+export function parseAccountLoginConfirmation(
+  source: ArrayBuffer | ArrayBufferView,
+): ClassicAccountLoginConfirmation {
+  const reader = new PacketReader(source);
+  const header = reader.header();
+  if (header.type !== ClassicOpcode.cnfAccountLogin) {
+    throw new Error(`Opcode não é MSG_CNFAccountLogin: 0x${header.type.toString(16)}`);
+  }
+  if (header.size !== CLASSIC_PACKET_SIZES.cnfAccountLogin) {
+    throw new Error(`MSG_CNFAccountLogin com tamanho inesperado: ${header.size}`);
+  }
+
+  const secretCode = reader.bytes(16);
+  const selectedCharacterOffset = reader.offset;
+  const homeTownX = Array.from({ length: 4 }, () => reader.u16());
+  const homeTownY = Array.from({ length: 4 }, () => reader.u16());
+  const names = Array.from({ length: 4 }, () => reader.fixedString(16));
+
+  const levels: number[] = [];
+  for (let slot = 0; slot < 4; slot++) {
+    levels.push(reader.i16());
+    reader.skip(CLASSIC_STRUCTURE_SIZES.score - 2);
+  }
+
+  reader.skip(CLASSIC_STRUCTURE_SIZES.item * 4 * 16);
+  const guilds = Array.from({ length: 4 }, () => reader.u16());
+  const coins = Array.from({ length: 4 }, () => reader.i32());
+  const experiences = Array.from({ length: 4 }, () => reader.u64());
+
+  if (reader.offset - selectedCharacterOffset !== CLASSIC_STRUCTURE_SIZES.selectedCharacters) {
+    throw new Error("STRUCT_SELCHAR divergiu do layout auditado");
+  }
+
+  const characters = names.map((name, slot): ClassicCharacterSummary => ({
+    slot,
+    name,
+    homeTownX: homeTownX[slot]!,
+    homeTownY: homeTownY[slot]!,
+    level: levels[slot]!,
+    guild: guilds[slot]!,
+    coin: coins[slot]!,
+    experience: experiences[slot]!,
+  }));
+
+  reader.skip(CLASSIC_STRUCTURE_SIZES.item * 128);
+  const cargoCoin = reader.i32();
+  const accountName = reader.fixedString(16);
+  const ssn1 = reader.i32();
+  const ssn2 = reader.i32();
+
+  if (reader.remaining !== 0) {
+    throw new Error(`MSG_CNFAccountLogin contém ${reader.remaining} bytes inesperados`);
+  }
+  return { header, secretCode, characters, cargoCoin, accountName, ssn1, ssn2 };
+}
+
+export function parseCharacterLoginConfirmation(
+  source: ArrayBuffer | ArrayBufferView,
+): ClassicCharacterLoginConfirmation {
+  const reader = new PacketReader(source);
+  const header = reader.header();
+  if (header.type !== ClassicOpcode.cnfCharacterLogin) {
+    throw new Error(`Opcode não é MSG_CNFCharacterLogin: 0x${header.type.toString(16)}`);
+  }
+
+  const posX = reader.i16();
+  const posY = reader.i16();
+  const mobStart = reader.offset;
+  const characterName = reader.fixedString(16);
+  reader.skip(4); // Clan, Merchant, Guild.
+  const characterClass = reader.u8();
+  reader.seek(mobStart + CLASSIC_STRUCTURE_SIZES.mob);
+
+  reader.skip(208);
+  const slot = reader.u16();
+  const clientId = reader.u16();
+  const weather = reader.u16();
+  const shortSkills = reader.bytes(16);
+
+  return {
+    header,
+    posX,
+    posY,
+    characterName,
+    characterClass,
+    clientId,
+    slot,
+    weather,
+    shortSkills,
+  };
+}
+
+export function parseMessagePanel(source: ArrayBuffer | ArrayBufferView): ClassicMessagePanel {
+  const reader = new PacketReader(source);
+  const header = reader.header();
+  if (header.type !== ClassicOpcode.messagePanel) {
+    throw new Error(`Opcode não é MSG_MessagePanel: 0x${header.type.toString(16)}`);
+  }
+  if (header.size !== CLASSIC_PACKET_SIZES.messagePanel) {
+    throw new Error(`MSG_MessagePanel com tamanho inesperado: ${header.size}`);
+  }
+  const message = reader.fixedString(128);
+  return { header, message };
 }
 
 export function parseClassicHeader(source: ArrayBuffer | ArrayBufferView): ClassicPacketHeader {

@@ -7,7 +7,7 @@ import {
 import { PacketWriter } from "../../src/network/classic/PacketIO";
 import { ClassicOpcode } from "../../src/network/classic/Protocol";
 
-function message(type = ClassicOpcode.action): Uint8Array {
+function message(type: number = ClassicOpcode.action): Uint8Array {
   return new PacketWriter(20)
     .header({ size: 20, keyword: 0, checksum: 0, type, id: 321, tick: 0 })
     .i32(0x12345678)
@@ -79,7 +79,7 @@ describe("CPSockCodec", () => {
       tickSource: () => 2,
     });
     const encoded = encoder.encode(message());
-    encoded[3] ^= 0x01;
+    encoded[3] = encoded[3]! ^ 0x01;
     expect(() => decodeClassicCPSockPacket(encoded)).toThrow(/checksum/i);
   });
 });

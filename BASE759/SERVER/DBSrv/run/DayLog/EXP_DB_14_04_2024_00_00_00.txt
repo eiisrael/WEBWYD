@@ -1,0 +1,2 @@
+[14/04/2024][00:00:00] ADMIN Char:TestesADM recebeu 2331668 exp hoje.
+[14/04/2024][00:00:00] COSMOS Char:testeing recebeu 45537100 exp hoje.

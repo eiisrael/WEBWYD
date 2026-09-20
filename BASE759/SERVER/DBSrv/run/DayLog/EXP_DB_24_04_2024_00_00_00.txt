@@ -1,0 +1,2 @@
+[24/04/2024][00:00:00] ADMIN Char:VProVanaheim recebeu 10002 exp hoje.
+[24/04/2024][00:00:00] TEST1 Char:TESTE recebeu 142001373 exp hoje.

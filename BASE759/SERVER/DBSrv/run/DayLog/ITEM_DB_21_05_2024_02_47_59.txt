@@ -1,0 +1,2 @@
+[21/05/2024][02:47:59]  ItemID:806 ItemName:Machado_Duplo ItemNum:1 
+[21/05/2024][02:47:59]  ItemID:1839 ItemName:Botas_Vampíricas(A) ItemNum:1 

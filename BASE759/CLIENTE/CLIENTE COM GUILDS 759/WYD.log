@@ -1,0 +1,21 @@
+------------------------------------------
+>>> Logging system turn on.
+>> mark 
+07/23 20:20:14 - VertexShader HW Accel Enabled
+07/23 20:20:14 - Error in Init Render Target Texture
+07/23 20:20:15 - ReadingError : mesh\\etc053_off.msa
+07/23 20:20:15 - ReadingError : mesh\\etc058_off.msa
+07/23 20:20:15 - ReadingError : mesh\\etc061_off.msa
+07/23 20:20:15 - ReadingError : mesh\\etc055_off.msa
+07/23 20:20:22 - ReadingError : mesh\\etc051_off.msa
+07/23 20:20:22 - ReadingError : mesh\\etc054_off.msa
+07/23 20:20:22 - ReadingError : mesh\\sgate3_off.msa
+07/23 20:20:28 - >> New Field Scene
+07/23 20:20:28 - >> Init Field Scene::Start
+07/23 20:20:28 - >> Init Field Scene::End
+07/23 22:03:09 - ReadingError : mesh\\etc051_off.msa
+07/23 22:03:09 - ReadingError : mesh\\etc055_off.msa
+07/23 22:03:09 - ReadingError : mesh\\sgate3_off.msa
+07/23 22:03:14 - >> New Field Scene
+07/23 22:03:14 - >> Init Field Scene::Start
+07/23 22:03:15 - >> Init Field Scene::End

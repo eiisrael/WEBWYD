@@ -1,0 +1,6 @@
+[29/07/2024][20:46:04]  ItemID:1221 ItemName:Armadura_Flamejante ItemNum:1 
+[29/07/2024][20:46:04]  ItemID:1348 ItemName:Calça_de_Mytril(M) ItemNum:1 
+[29/07/2024][20:46:04]  ItemID:1351 ItemName:Luvas_de_Mytril(M) ItemNum:42 
+[29/07/2024][20:46:04]  ItemID:1656 ItemName:Armadura_Rake ItemNum:1 
+[29/07/2024][20:46:04]  ItemID:1721 ItemName:Bola_de_Neve ItemNum:1 
+[29/07/2024][20:46:04]  ItemID:2849 ItemName:Fúria_Divina(Anct) ItemNum:197 

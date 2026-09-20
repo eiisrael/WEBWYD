@@ -1,0 +1,19 @@
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Debug\W2 - SkillData Editor.exe.config
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Debug\W2 - SkillData Editor.exe
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Debug\W2 - SkillData Editor.pdb
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2___SkillData_Editor.Window.resources
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2___SkillData_Editor.Properties.Resources.resources
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.csproj.GenerateResource.Cache
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.csproj.CoreCompileInputs.cache
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.exe
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.pdb
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.csprojResolveAssemblyReference.cache
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Debug\W2 - SkillData Editor.exe.config
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Debug\W2 - SkillData Editor.exe
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Debug\W2 - SkillData Editor.pdb
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.csprojAssemblyReference.cache
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2___SkillData_Editor.Window.resources
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2___SkillData_Editor.Properties.Resources.resources
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.csproj.GenerateResource.cache
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.exe
+C:\Users\Usuario\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Debug\W2 - SkillData Editor.pdb

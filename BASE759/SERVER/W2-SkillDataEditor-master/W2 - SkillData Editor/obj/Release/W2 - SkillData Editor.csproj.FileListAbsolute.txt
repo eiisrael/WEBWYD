@@ -1,0 +1,10 @@
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Release\W2 - SkillData Editor.exe.config
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Release\W2 - SkillData Editor.exe
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\bin\Release\W2 - SkillData Editor.pdb
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Release\W2___SkillData_Editor.Window.resources
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Release\W2___SkillData_Editor.Properties.Resources.resources
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Release\W2 - SkillData Editor.csproj.GenerateResource.Cache
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Release\W2 - SkillData Editor.csproj.CoreCompileInputs.cache
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Release\W2 - SkillData Editor.exe
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Release\W2 - SkillData Editor.pdb
+C:\Users\djuni\Desktop\W2 - SkillData Editor\W2 - SkillData Editor\obj\Release\W2 - SkillData Editor.csprojResolveAssemblyReference.cache

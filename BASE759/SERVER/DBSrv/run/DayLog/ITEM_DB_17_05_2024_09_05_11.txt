@@ -1,0 +1,3 @@
+[17/05/2024][09:05:11]  ItemID:1513 ItemName:Manoplas_do_Corvo ItemNum:1 
+[17/05/2024][09:05:11]  ItemID:1723 ItemName:Freixo_de_Feno ItemNum:1 
+[17/05/2024][09:05:11]  ItemID:4020 ItemName:Classe_E ItemNum:1 

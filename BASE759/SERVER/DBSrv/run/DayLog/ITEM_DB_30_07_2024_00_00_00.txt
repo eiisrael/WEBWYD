@@ -1,0 +1,7 @@
+[30/07/2024][00:00:00]  ItemID:419 ItemName:Resto_de_Oriharucon ItemNum:86 
+[30/07/2024][00:00:00]  ItemID:1342 ItemName:Chapéu_de_Mytril(M) ItemNum:2 
+[30/07/2024][00:00:00]  ItemID:1351 ItemName:Luvas_de_Mytril(M) ItemNum:70 
+[30/07/2024][00:00:00]  ItemID:1354 ItemName:Botas_de_Mytril(M) ItemNum:1 
+[30/07/2024][00:00:00]  ItemID:1722 ItemName:Galho ItemNum:1 
+[30/07/2024][00:00:00]  ItemID:2843 ItemName:Olho_do_Carbunkle(Anct) ItemNum:1 
+[30/07/2024][00:00:00]  ItemID:2849 ItemName:Fúria_Divina(Anct) ItemNum:273 

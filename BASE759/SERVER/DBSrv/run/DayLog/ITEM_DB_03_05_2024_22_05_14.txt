@@ -1,0 +1,4 @@
+[03/05/2024][22:05:14]  ItemID:451 ItemName:Chave_da_Primeira_Porta ItemNum:5 
+[03/05/2024][22:05:14]  ItemID:452 ItemName:Chave_da_Segunda_Porta ItemNum:1 
+[03/05/2024][22:05:14]  ItemID:453 ItemName:Chave_da_Ultima_Porta ItemNum:2 
+[03/05/2024][22:05:14]  ItemID:524 ItemName:Emblema_Orc ItemNum:2 

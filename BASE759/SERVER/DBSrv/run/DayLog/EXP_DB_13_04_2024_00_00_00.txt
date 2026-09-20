@@ -1,0 +1,4 @@
+[13/04/2024][00:00:00] ADMIN Char:ADM-ODIN recebeu 446830446 exp hoje.
+[13/04/2024][00:00:00] ADMIN1 Char:GM-Kakaroto recebeu 192333 exp hoje.
+[13/04/2024][00:00:00] COSMOS Char:testeing recebeu 344712 exp hoje.
+[13/04/2024][00:00:00] EYEVISION Char:DarkAvenger recebeu 13036136 exp hoje.

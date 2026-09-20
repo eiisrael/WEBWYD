@@ -1,0 +1,4 @@
+[21/05/2024][08:29:56]  ItemID:986 ItemName:Lança_do_Vento ItemNum:1 
+[21/05/2024][08:29:56]  ItemID:1831 ItemName:Saia_Vampírica(A) ItemNum:1 
+[21/05/2024][08:29:56]  ItemID:2199 ItemName:Luvas_de_Concha(Le) ItemNum:1 
+[21/05/2024][08:29:56]  ItemID:2239 ItemName:Braçadeira_de_Combate(Le) ItemNum:1 

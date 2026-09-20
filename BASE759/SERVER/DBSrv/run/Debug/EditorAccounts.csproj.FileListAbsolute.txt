@@ -1,0 +1,19 @@
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.csproj.AssemblyReference.cache
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.CriarConta.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.Form1.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.Sobre.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.Form3.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.Form5.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.Form4.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.LocalizarItem.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.Properties.Resources.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.W2___Alterador_de_senha_Global.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.W2___Pesquisar_Item.resources
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.csproj.GenerateResource.cache
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAccounts.csproj.CoreCompileInputs.cache
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\EditorAc.5EA35AEB.Up2Date
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2 - Editor de Contas.exe.config
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\W2 - Editor de Contas.exe
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2-ACCOUNT-EDITOR-master\EditorAccounts\obj\Debug\W2 - Editor de Contas.pdb
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2 - Editor de Contas.exe
+D:\WydCode\Projeto_Base_Lohan_Corno\Zips\Ferramentas\MaisFerramentas\W2 - Editor de Contas.pdb

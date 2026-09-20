@@ -1,0 +1,35 @@
+FFFFFF  
+FFFFFF       Seja Bem-Vindo ao mundo WYD!
+FFFFFF 
+FFFFFF       
+FFFFFF       Este deve ser o seu primeiro acesso!
+FFFFFF       WYD está atualmente na versão 7.50.
+FFFFFF       Não deixe de conferir as novidades desta nova versão como: 
+FFFFFF       Interface de Jogo;
+FFFFFF       Guerra entre Reinos (RvR);
+FFFFFF       Skill TransKnight(Trans): Mestre das Armas;
+FFFFFF
+FFFFFF       Os personagens ganham itens ao atingirem determinados níveis.
+FFFFFF       Verifique sempre o nível de Comida, senão os pontos
+FFFFFF       de status poderão diminuir.
+FFFFFF
+FFFFFF       Cuidado durante as negociações, não aceite itens de estranhos,
+FFFFFF       evite confiar em qualquer um e preste bastante atenção nos clones.
+FFFFFF
+FFFFFF       Os GMs nunca solicitarão sua ID/Senha, nem seus itens!
+FFFFFF
+FFFFFF       Desejamos um ótimo jogo!
+FFFFFF
+FFFFFF       Para maiores informações ou esclarecimento de dúvidas,
+FFFFFF       acesse o SUPORTE WYD através do site www.wyd.com.br.
+FFFFFF
+FFFFFF       
+FFFFFF       Atenciosamente,
+FFFFFF       
+FFFFFF       Equipe WYD/ONGAME
+FFFFFF       
+FFFFFF       WYD - O destino do mundo em suas mãos.       
+FFFFFF       
+FFFFFF       
+FFFFFF       Copyright ONGAME, JOYIMPACT & HANBITSOFT 2008.
+FFFFFF       Todos os direitos reservados.

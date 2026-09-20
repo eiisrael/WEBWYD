@@ -17,7 +17,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "bun tools/lint-project.mjs",
-    "check": "bun run lint && bun run test && bun run build"
+    "check": "bun run lint && bun run test && bun run gateway:check && bun run build",
+    "gateway": "bun gateway/server.mjs",
+    "gateway:check": "bun build gateway/server.mjs --target=bun --outdir=/tmp/webwyd-gateway-check"
   },
   "dependencies": {
     "three": "^0.180.0"

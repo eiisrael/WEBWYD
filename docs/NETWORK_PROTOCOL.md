@@ -91,15 +91,38 @@ O `MSG_AccountLogin` conserva:
 - integração com `GameApp`;
 - autoridade de movimento/combat/inventory.
 
-## Próximo lote P0
+## Estado do P0
 
-1. criar `ClassicPacketDispatcher`;
-2. codecs de confirmação de login e seleção de personagem;
-3. state machine de sessão;
-4. contrato explícito Browser ↔ Gateway;
-5. protótipo do gateway;
-6. testes de framing usando vetores derivados do `CPSock`;
-7. somente depois conectar uma tela de login ao runtime.
+O núcleo estrutural do P0 está implementado:
+
+- `ClassicPacketDispatcher` com validação estrita de tamanho;
+- `ClassicSession` com estados de conexão/login/seleção/entrada no Field;
+- codecs de login, confirmação de conta, seleção e confirmação de personagem;
+- parser comprovado de `STRUCT_SCORE`, `STRUCT_ITEM` e núcleo de `STRUCT_MOB`;
+- `CPSockCodec` com a tabela `pKeyWord[512]` exata da BASE759;
+- framing/reassembly para streams TCP fragmentados;
+- `INIT_CODE`;
+- rotação de `SendQueue` por `SecretCode`;
+- gateway Bun WebSocket ↔ TCP;
+- quality gate compilando gateway + frontend;
+- testes automatizados para os layouts/framing/sessão.
+
+A etapa que ainda impede declarar P0 homologado em produção é um teste de
+integração **contra uma instância real do TMSrv**: conexão TCP, login válido,
+`MSG_CNFAccountLogin`, seleção do personagem e `MSG_CNFCharacterLogin`.
+
+## P1 iniciado — replicação de Field
+
+A primeira fatia do P1 já existe:
+
+- `MSG_CreateMob` e `MSG_CreateMobTrade`;
+- `MSG_Action`/`MSG_Action_Stop`;
+- `ClassicFieldReplica`, um estado de atores independente de Three.js;
+- `ClassicSession.fieldReplica`.
+
+O objetivo é migrar o renderer gradualmente de “simulador local de atores” para
+“apresentador de estado autoritativo recebido do TMSrv”, sem remover o modo
+offline enquanto a rede não estiver homologada.
 
 ## Regra de segurança
 
@@ -162,3 +185,24 @@ uma alteração arbitrária de dados.
 O gateway preserva essa semântica por compatibilidade. Segurança de transporte
 público deve vir de WSS/TLS e das validações autoritativas do servidor, não
 desse checksum legado.
+
+
+### STRUCT_MOB auditado
+
+Os comentários antigos do `Basedef.h` sugerem offsets que terminariam perto de
+805/808 bytes, mas o layout Win32 real foi comprovado por outra estrutura do
+próprio servidor:
+
+```text
+STRUCT_ACCOUNTFILE:
+Char[4] = offsets 216..3480
+3480 - 216 = 3264
+3264 / 4 = 816 bytes por STRUCT_MOB
+```
+
+Por isso o protocolo WEBWYD usa **816 bytes**.
+
+A parte até `Carry[64]` é decodificada normalmente. Os 36 bytes finais
+permanecem como `opaqueTail` porque os `Basedef.h` de cliente e servidor
+desta BASE759 atribuem semânticas diferentes a essa cauda. Ela só será tipada
+quando a divergência for resolvida com evidência adicional.

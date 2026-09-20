@@ -105,3 +105,48 @@ O `MSG_AccountLogin` conserva:
 
 Nenhuma regra autoritativa deve migrar do TMSrv para o navegador apenas por
 conveniência. O frontend pode prever e apresentar; o servidor decide.
+
+
+## Gateway executável
+
+Protótipo atual:
+
+```text
+gateway/server.mjs
+```
+
+Execução local:
+
+```bash
+bun run gateway
+```
+
+Variáveis suportadas:
+
+```text
+WYD_GATEWAY_PORT=8787
+WYD_TCP_HOST=127.0.0.1
+WYD_TCP_PORT=7556
+WYD_GATEWAY_ORIGINS=http://localhost:5173
+```
+
+Endpoints:
+
+- `GET /health` — estado básico do gateway;
+- `WS /wyd` — frames binários contendo packets clássicos decodificados.
+
+Fluxo implementado:
+
+1. browser abre WebSocket;
+2. gateway abre TCP para o TMSrv;
+3. gateway envia `INIT_CODE` little-endian;
+4. browser envia `MSG_*` decodificado;
+5. gateway aplica framing/obfuscação `CPSock`;
+6. TMSrv recebe o packet clássico;
+7. respostas TCP são remontadas/decodificadas;
+8. gateway envia o packet clássico decodificado ao browser;
+9. ao receber `MSG_CNFAccountLogin`, o gateway instala o `SecretCode` como
+   `SendQueue` para os próximos packets, espelhando o cliente BASE759.
+
+O gateway ainda é protótipo de desenvolvimento: autenticação externa, TLS
+terminado, rate limit, métricas e implantação pública ainda não foram fechados.

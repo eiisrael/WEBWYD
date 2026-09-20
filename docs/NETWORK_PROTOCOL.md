@@ -150,3 +150,15 @@ Fluxo implementado:
 
 O gateway ainda é protótipo de desenvolvimento: autenticação externa, TLS
 terminado, rate limit, métricas e implantação pública ainda não foram fechados.
+
+
+### Limitação do checksum clássico
+
+O `CPSock` calcula `CheckSum = Sum(encoded) - Sum(decoded)`. Como a diferença
+por posição é determinada principalmente pela transformação `pKeyWord`, esse
+byte **não é um hash de integridade do payload** e não detecta necessariamente
+uma alteração arbitrária de dados.
+
+O gateway preserva essa semântica por compatibilidade. Segurança de transporte
+público deve vir de WSS/TLS e das validações autoritativas do servidor, não
+desse checksum legado.

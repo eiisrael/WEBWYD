@@ -11,6 +11,7 @@ import {
 import { ClassicOpcode } from "../classic/Protocol";
 import type { ClassicMobCore } from "../classic/Structures";
 import { ClassicPacketDispatcher } from "../classic/ClassicPacketDispatcher";
+import { ClassicFieldReplica } from "../classic/ClassicFieldReplica";
 import type {
   ClassicTransport,
   ClassicTransportState,
@@ -60,6 +61,7 @@ type SessionListener<K extends keyof ClassicSessionEventMap> = (
 
 export class ClassicSession {
   readonly #dispatcher = new ClassicPacketDispatcher();
+  readonly fieldReplica = new ClassicFieldReplica(this.#dispatcher);
   readonly #listeners = new Map<keyof ClassicSessionEventMap, Set<(event: unknown) => void>>();
   readonly #cleanups: Array<() => void> = [];
 
@@ -162,6 +164,7 @@ export class ClassicSession {
     if (this.#disposed) return;
     this.#disposed = true;
     for (const cleanup of this.#cleanups.splice(0)) cleanup();
+    this.fieldReplica.dispose();
     this.#dispatcher.clear();
     this.zeroSensitiveBuffers();
     this.#listeners.clear();
@@ -231,6 +234,7 @@ export class ClassicSession {
 
   private resetSessionData(): void {
     this.zeroSensitiveBuffers();
+    this.fieldReplica.clear();
     this.#accountName = null;
     this.#characters = [];
     this.#cargoCoin = 0;

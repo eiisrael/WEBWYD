@@ -64,6 +64,25 @@ export interface ClassicMessagePanel {
   readonly message: string;
 }
 
+
+export interface ClassicCreateMobMessage {
+  readonly header: ClassicPacketHeader;
+  readonly posX: number;
+  readonly posY: number;
+  readonly mobId: number;
+  readonly mobName: string;
+  readonly equipment: readonly number[];
+  readonly affects: readonly number[];
+  readonly guild: number;
+  readonly guildLevel: number;
+  readonly score: ReturnType<typeof parseClassicScore>;
+  readonly createType: number;
+  readonly equipment2: Uint8Array;
+  readonly nick: string;
+  readonly hold: number | null;
+  readonly tradeDescription: string | null;
+}
+
 export interface ClassicActionMessage {
   readonly header: ClassicPacketHeader;
   readonly posX: number;
@@ -162,6 +181,67 @@ export function createActionPacket(
   writer.u16(action.targetX);
   writer.u16(action.targetY);
   return writer.finish();
+}
+
+
+export function parseCreateMobPacket(
+  source: ArrayBuffer | ArrayBufferView,
+): ClassicCreateMobMessage {
+  const reader = new PacketReader(source);
+  const header = reader.header();
+  const trade = header.type === ClassicOpcode.createMobTrade;
+  const expectedSize = trade
+    ? CLASSIC_PACKET_SIZES.createMobTrade
+    : CLASSIC_PACKET_SIZES.createMob;
+
+  if (header.type !== ClassicOpcode.createMob && !trade) {
+    throw new Error(`Opcode não é MSG_CreateMob: 0x${header.type.toString(16)}`);
+  }
+  if (header.size !== expectedSize) {
+    throw new Error(
+      `${trade ? "MSG_CreateMobTrade" : "MSG_CreateMob"} com tamanho inesperado: ${header.size}`,
+    );
+  }
+
+  const posX = reader.i16();
+  const posY = reader.i16();
+  const mobId = reader.u16();
+  const mobName = reader.fixedString(16);
+  const equipment = Array.from({ length: 16 }, () => reader.u16());
+  const affects = Array.from({ length: 32 }, () => reader.u16());
+  const guild = reader.u16();
+  const guildLevel = reader.u8();
+  reader.skip(3); // Unknow[3] no normal; padding Win32 equivalente no Trade.
+  const score = parseClassicScore(reader);
+  const createType = reader.u16();
+  const equipment2 = reader.bytes(16);
+  const nick = reader.fixedString(26);
+  const hold = trade ? null : reader.i32();
+  const tradeDescription = trade ? reader.fixedString(24) : null;
+
+  if (reader.remaining !== 0) {
+    throw new Error(
+      `${trade ? "MSG_CreateMobTrade" : "MSG_CreateMob"} contém ${reader.remaining} bytes inesperados`,
+    );
+  }
+
+  return {
+    header,
+    posX,
+    posY,
+    mobId,
+    mobName,
+    equipment,
+    affects,
+    guild,
+    guildLevel,
+    score,
+    createType,
+    equipment2,
+    nick,
+    hold,
+    tradeDescription,
+  };
 }
 
 export function parseActionPacket(source: ArrayBuffer | ArrayBufferView): ClassicActionMessage {

@@ -27,3 +27,11 @@ anteriores à higienização devem ser descartados ou recriados a partir de
 Ao encontrar uma possível vulnerabilidade, evite publicar credenciais ou dados
 sensíveis em issues públicas. Descreva o componente afetado e os passos de
 reprodução sem incluir segredos.
+
+
+## Validação automática
+
+O workflow `.github/workflows/quality.yml` executa lint estrutural, testes e
+build em alterações da linha principal. Ele também bloqueia a reintrodução de
+`BASE759`, lockfiles concorrentes e acesso direto ao DOM nas camadas
+`game`/`formats`.

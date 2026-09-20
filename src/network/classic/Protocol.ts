@@ -9,6 +9,9 @@ export const CLASSIC_INIT_CODE = 521_270_033;
 export const ClassicOpcode = {
   messagePanel: 0x101,
   cnfAccountLogin: 0x10a,
+  cnfNewCharacter: 0x110,
+  cnfDeleteCharacter: 0x112,
+  cnfCharacterLogin: 0x114,
   newCharacter: 0x20f,
   deleteCharacter: 0x211,
   characterLogin: 0x213,
@@ -42,9 +45,18 @@ export const ClassicOpcode = {
 
 export type ClassicOpcodeValue = (typeof ClassicOpcode)[keyof typeof ClassicOpcode];
 
+export const CLASSIC_STRUCTURE_SIZES = {
+  score: 48,
+  item: 8,
+  selectedCharacters: 840,
+  mob: 808,
+} as const;
+
 export const CLASSIC_PACKET_SIZES = {
   standard: 12,
+  messagePanel: 140,
   characterLogin: 36,
+  cnfAccountLogin: 1_920,
   action: 52,
   /**
    * O layout C++ possui 2 bytes de padding entre Force (short) e IP[4].

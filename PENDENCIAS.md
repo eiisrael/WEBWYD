@@ -268,15 +268,18 @@ considerados fiéis quando possuem uma origem rastreável no cliente clássico.
     README documenta o limite dessa proteção, instalação e comandos somente com
     Bun, preparo dos assets, erros comuns, iPhone/Vercel e a galeria de capturas
     reais, incluindo as quatro classes, evocações e os 111 mapas.
-13. Auditoria técnica final e cobertura do cliente clássico. Revisar o runtime
-    contra as melhores práticas atuais do Three.js — ciclo de vida/dispose,
-    cache e compartilhamento de GPU, draw calls/instancing, streaming, LOD,
-    frustum/occlusion, materiais/shaders, animação, carregamento assíncrono e
-    orçamento de memória/frame. Em paralelo, gerar uma matriz rastreável do que
-    foi e não foi importado para todas as classes, monstros, NPCs, itens,
-    equipamentos, montarias, animações, sons e efeitos; apontar os parsers e
-    dados-fonte existentes, lacunas, dependências e a ordem segura para trazer
-    o restante sem regressões visuais.
+13. Auditoria técnica final e cobertura do cliente clássico — **primeira
+    auditoria sistemática BASE759 → WEBWYD concluída em 20/09/2026**. A matriz
+    rastreável está em [docs/AUDITORIA_BASE759_WEBWYD.md](docs/AUDITORIA_BASE759_WEBWYD.md)
+    e separa comportamento clássico, customizações da BASE759, implementação
+    web fiel/parcial, extensões deliberadas e lacunas. O principal bloqueio
+    identificado deixou de ser renderização básica e passou a ser
+    sessão/protocolo/estado autoritativo: login, seleção de personagem,
+    transporte de packets, movimento validado, combate, mobs, inventário,
+    economia e persistência. A revisão Three.js de performance fina
+    (draw calls/instancing, LOD, frustum/occlusion e orçamento de memória/frame)
+    continua aberta como segunda etapa da auditoria técnica, sem reabrir
+    subsistemas já homologados sem regressão reproduzível.
 14. Memória canônica do projeto. Depois da auditoria final, criar e consolidar
     `MEMORIA_PROJETO.md` com a arquitetura resultante, decisões e justificativas,
     fontes do cliente clássico por subsistema, formatos/parsers, descobertas,
@@ -322,5 +325,6 @@ considerados fiéis quando possuem uma origem rastreável no cliente clássico.
 
 - Usar `bun` para instalar dependências e executar scripts; não usar `npm`.
 
-Rede e suíte de testes permanecem fora do escopo por decisão do projeto; cada
-etapa fecha com build e inspeção manual focada.
+Rede permanece fora do runtime atual por decisão de fase. A suíte de testes e
+o CI já fazem parte do projeto; cada etapa deve fechar com lint, testes, build e
+inspeção manual focada quando houver componente visual.

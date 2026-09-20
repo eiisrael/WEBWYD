@@ -23,6 +23,7 @@ jobs:
           sparse-checkout: |
             .github
             docs
+            gateway
             public/game-data/classic
             src
             tests

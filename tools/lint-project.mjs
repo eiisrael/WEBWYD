@@ -8,9 +8,6 @@ const warnings = [];
 function fail(message) { failures.push(message); }
 function warn(message) { warnings.push(message); }
 
-if (existsSync(join(root, "BASE759"))) {
-  fail("BASE759 deve permanecer fora do repositorio WEBWYD.");
-}
 if (existsSync(join(root, "package-lock.json"))) {
   fail("package-lock.json nao e permitido: Bun e o gerenciador canonico.");
 }
@@ -28,6 +25,20 @@ for (const layer of ["src/game", "src/formats"]) {
     if (/\bdocument\./.test(code) || /\bwindow\./.test(code)) {
       fail(`${relative(root, file)} acessa DOM; mova essa responsabilidade para input/ui/render/app.`);
     }
+  }
+}
+
+const REFERENCE_SECRET_PATHS = [
+  "BASE759/SOURCERS/Source do Servidor/Code/DBSrv/dbMySQL.h",
+  "BASE759/SOURCERS/Source do Servidor/Code/TMSrv/wMySQL.h",
+];
+
+for (const relativePath of REFERENCE_SECRET_PATHS) {
+  const file = join(root, relativePath);
+  if (!existsSync(file)) continue;
+  const source = stripComments(readFileSync(file, "utf8"));
+  if (/^\s*#define\s+PASS\s+"(?!CHANGE_ME_LOCAL_ONLY")[^"]+"/m.test(source)) {
+    fail(`${relativePath} contem senha de referencia nao sanitizada.`);
   }
 }
 

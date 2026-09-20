@@ -73,13 +73,13 @@ describe("CPSockCodec", () => {
     expect(new DataView(packets[1]!.buffer).getUint16(4, true)).toBe(ClassicOpcode.motion);
   });
 
-  it("detecta corrupção pelo checksum", () => {
+  it("valida o byte de checksum clássico sem atribuir garantias que o CPSock não possui", () => {
     const encoder = new ClassicCPSockEncoder({
       keywordSource: () => 3,
       tickSource: () => 2,
     });
     const encoded = encoder.encode(message());
-    encoded[15] ^= 0x7f;
+    encoded[3] ^= 0x01;
     expect(() => decodeClassicCPSockPacket(encoded)).toThrow(/checksum/i);
   });
 });

@@ -29,6 +29,4 @@ reprodução sem incluir segredos.
 ## Validação automática
 
 O workflow `.github/workflows/quality.yml` executa lint estrutural, testes e
-build em alterações da linha principal. Ele também bloqueia a reintrodução de
-`BASE759`, lockfiles concorrentes e acesso direto ao DOM nas camadas
-`game`/`formats`.
+build em alterações da linha principal. Ele também valida os headers sensíveis da `BASE759`, bloqueia lockfiles concorrentes e acesso direto ao DOM nas camadas `game`/`formats`.

@@ -4,6 +4,7 @@ import {
   PacketWriter,
   type ClassicPacketHeader,
 } from "./PacketIO";
+import { parseClassicMobCore, parseClassicScore, type ClassicMobCore } from "./Structures";
 import {
   CLASSIC_APP_VERSION,
   CLASSIC_PACKET_SIZES,
@@ -49,6 +50,7 @@ export interface ClassicCharacterLoginConfirmation {
   readonly header: ClassicPacketHeader;
   readonly posX: number;
   readonly posY: number;
+  readonly mob: ClassicMobCore;
   readonly characterName: string;
   readonly characterClass: number;
   readonly clientId: number;
@@ -201,11 +203,7 @@ export function parseAccountLoginConfirmation(
   const homeTownY = Array.from({ length: 4 }, () => reader.u16());
   const names = Array.from({ length: 4 }, () => reader.fixedString(16));
 
-  const levels: number[] = [];
-  for (let slot = 0; slot < 4; slot++) {
-    levels.push(reader.i16());
-    reader.skip(CLASSIC_STRUCTURE_SIZES.score - 2);
-  }
+  const scores = Array.from({ length: 4 }, () => parseClassicScore(reader));
 
   reader.skip(CLASSIC_STRUCTURE_SIZES.item * 4 * 16);
   const guilds = Array.from({ length: 4 }, () => reader.u16());
@@ -221,7 +219,7 @@ export function parseAccountLoginConfirmation(
     name,
     homeTownX: homeTownX[slot]!,
     homeTownY: homeTownY[slot]!,
-    level: levels[slot]!,
+    level: scores[slot]!.level,
     guild: guilds[slot]!,
     coin: coins[slot]!,
     experience: experiences[slot]!,
@@ -250,11 +248,9 @@ export function parseCharacterLoginConfirmation(
 
   const posX = reader.i16();
   const posY = reader.i16();
-  const mobStart = reader.offset;
-  const characterName = reader.fixedString(16);
-  reader.skip(4); // Clan, Merchant, Guild.
-  const characterClass = reader.u8();
-  reader.seek(mobStart + CLASSIC_STRUCTURE_SIZES.mob);
+  const mob = parseClassicMobCore(reader);
+  const characterName = mob.name;
+  const characterClass = mob.characterClass;
 
   reader.skip(208);
   const slot = reader.u16();
@@ -266,6 +262,7 @@ export function parseCharacterLoginConfirmation(
     header,
     posX,
     posY,
+    mob,
     characterName,
     characterClass,
     clientId,

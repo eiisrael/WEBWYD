@@ -21,9 +21,12 @@ export const ClassicOpcode = {
   requestCapsuleInfo: 0x2cd,
   deleteItem: 0x2e4,
   splitItem: 0x2e5,
+  createMobTrade: 0x363,
+  createMob: 0x364,
   actionStop: 0x366,
   attackMulti: 0x367,
   action2: 0x368,
+  requestMobById: 0x369,
   motion: 0x36a,
   updateEquip: 0x36b,
   action: 0x36c,
@@ -57,6 +60,8 @@ export const CLASSIC_PACKET_SIZES = {
   messagePanel: 140,
   characterLogin: 36,
   cnfAccountLogin: 1_920,
+  createMob: 232,
+  createMobTrade: 252,
   action: 52,
   /**
    * O layout C++ possui 2 bytes de padding entre Force (short) e IP[4].

@@ -23,6 +23,11 @@ export interface ClassicNetworkActorEnvironment {
   heightAt(position: WydPosition): number;
 }
 
+interface MutableWydPosition {
+  x: number;
+  y: number;
+}
+
 interface NetworkVisualActor {
   readonly id: number;
   readonly object: THREE.Group;
@@ -30,8 +35,8 @@ interface NetworkVisualActor {
   readonly label: THREE.Sprite;
   readonly labelTexture: THREE.CanvasTexture;
   readonly labelMaterial: THREE.SpriteMaterial;
-  readonly position: WydPosition;
-  readonly target: WydPosition;
+  readonly position: MutableWydPosition;
+  readonly target: MutableWydPosition;
   readonly scale: number;
   currentAction: string;
   lastAttackTick: number;

@@ -46,6 +46,23 @@ export class ClassicItemCatalog {
     }
   }
 
+  static fromEntries(entries: readonly ClassicItemCatalogEntry[]): ClassicItemCatalog {
+    return new ClassicItemCatalog({
+      version: 1,
+      source: "inline-test",
+      items: entries.map((item) => ({
+        i: item.index,
+        n: item.name,
+        m: item.meshIndex,
+        t: item.textureIndex,
+        p: item.position,
+        g: item.grade,
+        c: item.itemClass,
+        w: item.weaponType,
+      })),
+    });
+  }
+
   static async load(assets: ClassicAssetSource): Promise<ClassicItemCatalog> {
     const response = await fetch(assets.dataUrl("data/items.json"));
     if (!response.ok) {

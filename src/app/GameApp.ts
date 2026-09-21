@@ -55,6 +55,7 @@ import { ClassicLevelUpEffects } from "../render/effects/ClassicLevelUpEffects";
 import { ClassicInventoryPreview } from "../render/inventory/ClassicInventoryPreview";
 import { ClassicNetworkActorLayer } from "../render/npcs/ClassicNetworkActorLayer";
 import type { ClassicFieldSession, ClassicPlayerRuntime, ClassicSession } from "../network/session/ClassicSession";
+import { encodeClassicFieldRoute } from "../network/classic/ClassicRoute";
 import { configureClassicDdsTextureSupport } from "../render/textures/ClassicDdsTextureLoader";
 import {
   connectedFieldRegions,
@@ -216,7 +217,7 @@ export class GameApp {
     this.#levelUpEffects = new ClassicLevelUpEffects(this.#scene);
     this.#damageNumbers = new ClassicDamageNumbers(this.container);
     this.#input = new GameInput(this.#renderer.domElement);
-    this.#input.onGroundClick = this.#onlineSession ? () => undefined : this.groundClick;
+    this.#input.onGroundClick = this.#onlineSession ? this.onlineGroundClick : this.groundClick;
     this.#input.onCameraRotate = (yaw, pitch) => this.#cameraRig.rotate(yaw, pitch);
     this.#input.onZoom = (delta) => this.#cameraRig.zoom(delta);
     this.#input.onSpeedToggle = () => {
@@ -590,6 +591,65 @@ export class GameApp {
     this.#renderer.render(this.#scene, this.#camera);
     this.#inventoryPreview?.render();
     this.#telemetry.end();
+  };
+
+  private readonly onlineGroundClick = (pointer: THREE.Vector2): void => {
+    const session = this.#onlineSession;
+    const field = session?.snapshot.field;
+    if (!session || !field || !this.#world || !this.#player || !this.#playerState.snapshot.alive) return;
+
+    this.#raycaster.setFromCamera(pointer, this.#camera);
+    const hit = this.#raycaster.intersectObject(this.#world.object, true)[0];
+    if (!hit) return;
+
+    const requested = toWyd(hit.point.x, hit.point.z, this.#world.origin);
+    const path = this.#world.navigation.findPath(this.#player.position, requested, {
+      allowDiagonal: true,
+      maxVisited: 65_536,
+    });
+    if (path.status !== "found") {
+      if (path.status !== "already-there") {
+        this.#hud.addLog(`Rota online indisponível: ${path.status}.`, "system");
+      }
+      return;
+    }
+
+    const encoded = encodeClassicFieldRoute(path.points);
+    if (!encoded) return;
+    const speed = field.runtime.score.attackRun & 0x0f;
+    if (speed <= 0) {
+      this.#hud.addLog("TMSrv informou velocidade de movimento zero.", "system");
+      return;
+    }
+
+    try {
+      session.sendMoveIntent({
+        posX: encoded.start.x,
+        posY: encoded.start.y,
+        targetX: encoded.target.x,
+        targetY: encoded.target.y,
+        route: encoded.route,
+        speed,
+      });
+    } catch (error) {
+      this.#hud.addLog(
+        error instanceof Error ? error.message : "Falha ao enviar MSG_Action.",
+        "system",
+      );
+      return;
+    }
+
+    // Same client-side prediction used by TMHuman::GetRoute. TMSrv remains
+    // authoritative and an Action for our ClientID reconciles via fieldReplica.
+    this.#player.moveTo({
+      x: encoded.target.x + 0.5,
+      y: encoded.target.y + 0.5,
+    });
+    this.#clickMarker.position.set(hit.point.x, hit.point.y + 0.06, hit.point.z);
+    this.#clickMarker.scale.setScalar(0.72);
+    (this.#clickMarker.material as THREE.MeshBasicMaterial).opacity = 0.85;
+    this.#clickMarker.visible = true;
+    this.#clickMarkerElapsed = 0;
   };
 
   private readonly groundClick = (pointer: THREE.Vector2): void => {

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { ClassicAssetSource } from "../assets/ClassicAssetSource";
 import type { MapObjectRecord } from "../formats/classic/Dat";
 import type { TrnBlock, TrnTile } from "../formats/classic/Trn";
+import { ATTRIBUTE_MAP_SIDE } from "../formats/classic/NavigationData";
 import { TRN_SIDE } from "../formats/classic/Trn";
 import { createTerrainBlockMesh } from "../render/terrain/TerrainBlockMesh";
 import { TerrainMaterialLibrary } from "../render/terrain/TerrainMaterialLibrary";
@@ -66,6 +67,7 @@ export class ClassicWorld {
   readonly models: ModelLibrary;
   readonly #blocks = new Map<string, TrnBlock>();
   readonly #collisionMasks = new Map<string, ClassicCollisionMask>();
+  #attributeValues: Uint8Array | null = null;
   readonly #terrainMeshes = new Map<string, THREE.Group>();
   readonly #loadedFields = new Set<string>();
   readonly #loadJobs = new Map<string, Promise<void>>();
@@ -123,6 +125,27 @@ export class ClassicWorld {
 
   setEffectsEnabled(enabled: boolean): void {
     this.#mapObjects.setEffectsEnabled(enabled);
+  }
+
+  /**
+   * Mirrors TMObject::IsInTown/IsInPKZone: AttributeMap.dat is sampled at
+   * world coordinates / 4. Bit 0 marks town and bit 6 marks PK zone.
+   */
+  attributeFlagsAt(position: WydPosition): number | null {
+    const values = this.#attributeValues;
+    if (!values) return null;
+    const x = Math.trunc(position.x / 4);
+    const y = Math.trunc(position.y / 4);
+    if (x < 0 || y < 0 || x >= ATTRIBUTE_MAP_SIDE || y >= ATTRIBUTE_MAP_SIDE) return null;
+    return values[y * ATTRIBUTE_MAP_SIDE + x] ?? null;
+  }
+
+  isInTown(position: WydPosition): boolean {
+    return ((this.attributeFlagsAt(position) ?? 0) & 0x01) !== 0;
+  }
+
+  isInPkZone(position: WydPosition): boolean {
+    return ((this.attributeFlagsAt(position) ?? 0) & 0x40) !== 0;
   }
 
   /**
@@ -344,6 +367,7 @@ export class ClassicWorld {
         throw error;
       }
       if (!this.#desiredFields.has(key)) return;
+      this.#attributeValues = navigationData.attributes.values;
       const collisionMask = composeClassicCollisionMask(
         block,
         records,

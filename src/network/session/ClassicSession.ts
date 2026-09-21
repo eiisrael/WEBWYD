@@ -11,11 +11,13 @@ import {
 } from "../classic/Messages";
 import {
   createClientAttackPacket,
+  parseAttackPacket,
   parseHpDamagePacket,
   parseHpModePacket,
   parseHpMpPacket,
   parseUpdateEtcPacket,
   parseUpdateScorePacket,
+  type ClassicAttackMessage,
   type ClassicHpDamageMessage,
   type ClassicHpModeMessage,
   type ClassicHpMpMessage,
@@ -153,6 +155,15 @@ export class ClassicSession {
       }),
       this.#dispatcher.on(ClassicOpcode.messagePanel, (packet) => {
         this.emit("message", parseMessagePanel(packet).message);
+      }),
+      this.#dispatcher.on(ClassicOpcode.attackOne, (packet) => {
+        this.applyLocalAttack(parseAttackPacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.attackTwo, (packet) => {
+        this.applyLocalAttack(parseAttackPacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.attackMulti, (packet) => {
+        this.applyLocalAttack(parseAttackPacket(packet));
       }),
       this.#dispatcher.on(ClassicOpcode.setHpMp, (packet) => {
         this.applyHpMp(parseHpMpPacket(packet));
@@ -358,6 +369,31 @@ export class ClassicSession {
     this.#secretCode?.fill(0);
     this.#secretCode = null;
     this.setState("field");
+  }
+
+  private applyLocalAttack(message: ClassicAttackMessage): void {
+    const field = this.#field;
+    if (
+      !field
+      || message.attackerId !== field.clientId
+      || message.flagLocal !== 0
+      || message.skillIndex < 0
+      || message.skillIndex >= 104
+    ) {
+      return;
+    }
+
+    field.runtime = {
+      ...field.runtime,
+      score: {
+        ...field.runtime.score,
+        mp: message.currentMp,
+        special: [...field.runtime.score.special],
+      },
+      currentMp: message.currentMp,
+      requestedMp: message.currentMp,
+    };
+    this.emitRuntime();
   }
 
   private applyHpMp(message: ClassicHpMpMessage): void {

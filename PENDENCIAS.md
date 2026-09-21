@@ -325,8 +325,10 @@ considerados fiéis quando possuem uma origem rastreável no cliente clássico.
 
 - Usar `bun` para instalar dependências e executar scripts; não usar `npm`.
 
-Rede permanece fora do runtime atual por decisão de fase. A suíte de testes e
-o CI já fazem parte do projeto; cada etapa deve fechar com lint, testes, build e
+O modo offline permanece padrão e homologado. A rede entrou no runtime como
+modo **opt-in experimental** (`?mode=online`), sem substituir os mocks offline
+até a homologação ponta a ponta contra TMSrv/DBSrv. A suíte de testes e o CI
+fazem parte do projeto; cada etapa deve fechar com lint, testes, build e
 inspeção manual focada quando houver componente visual.
 
 
@@ -345,18 +347,31 @@ Primeiro lote concluído:
 - arquitetura Browser → WSS Gateway → TMSrv documentada em
   [docs/NETWORK_PROTOCOL.md](docs/NETWORK_PROTOCOL.md).
 
-A camada continua isolada do `GameApp` para preservar o modo offline
-homologado. Dispatcher, state machine, codec CPSock e gateway clássico já foram
-implementados e testados. Falta homologar o fluxo real contra TMSrv/DBSrv antes
-de tornar login online parte do boot padrão.
+Dispatcher, state machine, codec CPSock e gateway clássico já foram
+implementados e testados. O `GameApp` possui integração online opt-in, mas o
+boot padrão continua offline. A BASE759 confirma `GAME_PORT=7556` e
+`DB_PORT=7514`. Falta homologar o fluxo real contra TMSrv/DBSrv antes de
+considerar a sessão online pronta para uso normal.
 
 ### P1 — replicação autoritativa de Field — **iniciado**
 
-Primeiro lote:
+Lotes implementados:
 
 - `MSG_CreateMob` / `MSG_CreateMobTrade`;
-- `MSG_Action` / `MSG_Action_Stop`;
+- `MSG_Action` / `MSG_Action_Stop` / `MSG_Motion` / remoção;
+- packets de HP/MP, dano, score/etc e ataque One/Two/Multi;
 - parser de `STRUCT_MOB` Win32 com 816 bytes comprovados;
 - `ClassicFieldReplica` ligado à `ClassicSession`;
-- estado de entidades separado do Three.js para permitir migração incremental
-  do simulador offline para snapshots/ações do servidor.
+- `ClassicNetworkActorLayer` para NPCs/monstros autoritativos, usando
+  BON/MSH/ANI/DDS clássicos quando o nome/template é confirmado;
+- jogadores remotos `1..999` ficam propositalmente sem fallback de NPC até
+  portar `SetPacketEquipItem/SetRace/CheckWeapon`;
+- `PlayerState` possui modo autoritativo sem itens/recompensas mock;
+- `?mode=online` executa login → seleção → CharacterLogin antes de criar o
+  `GameApp`;
+- clique online codifica as direções clássicas `1/2/3/4/6/7/8/9`, limita o
+  Field a 12 passos, envia `MSG_Action` com velocidade de
+  `AttackRun & 0xF` e usa somente predição reconciliável pelo TMSrv.
+
+Próximo recorte: jogador remoto com equipamento real, seleção de alvo de rede e
+envio/reconciliação de ataque.

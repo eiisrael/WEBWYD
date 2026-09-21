@@ -475,4 +475,72 @@ describe("ClassicSession", () => {
     expect(view.getInt32(64, true)).toBe(-2);
   });
 
+
+  it("envia skill clássica sem descontar MP nem calcular dano no navegador", () => {
+    const transport = new FakeTransport();
+    const session = new ClassicSession(transport);
+
+    session.login("conta", "senha", "00:11:22:33:44:55");
+    transport.open();
+    transport.receive(accountConfirmation());
+    session.selectCharacter(0);
+    transport.receive(characterConfirmation());
+
+    const beforeMp = session.snapshot.field!.runtime.currentMp;
+    session.sendSkillAttackIntent({
+      skillIndex: 32,
+      maxTargets: 1,
+      targetIds: [1500],
+      posX: 2100,
+      posY: 2101,
+      targetX: 2102,
+      targetY: 2101,
+    });
+
+    expect(session.snapshot.field!.runtime.currentMp).toBe(beforeMp);
+    const packet = transport.sent[2]!;
+    const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+    expect(packet).toHaveLength(CLASSIC_PACKET_SIZES.attackOne);
+    expect(view.getUint16(4, true)).toBe(ClassicOpcode.attackOne);
+    expect(view.getUint16(42, true)).toBe(777);
+    expect(view.getInt32(52, true)).toBe(-1);
+    expect(view.getInt16(56, true)).toBe(32);
+    expect(view.getInt32(60, true)).toBe(1500);
+    expect(view.getInt32(64, true)).toBe(-1);
+  });
+
+  it("preserva o tamanho de packet definido por MaxTarget da SkillData", () => {
+    const transport = new FakeTransport();
+    const session = new ClassicSession(transport);
+    session.login("conta", "senha", "00:11:22:33:44:55");
+    transport.open();
+    transport.receive(accountConfirmation());
+    session.selectCharacter(0);
+    transport.receive(characterConfirmation());
+
+    session.sendSkillAttackIntent({
+      skillIndex: 2,
+      maxTargets: 2,
+      targetIds: [1500],
+      posX: 2100,
+      posY: 2101,
+      targetX: 2102,
+      targetY: 2101,
+    });
+    expect(transport.sent[2]).toHaveLength(CLASSIC_PACKET_SIZES.attackTwo);
+    expect(new DataView(transport.sent[2]!.buffer).getUint16(4, true)).toBe(ClassicOpcode.attackTwo);
+
+    session.sendSkillAttackIntent({
+      skillIndex: 44,
+      maxTargets: 13,
+      targetIds: [777],
+      posX: 2100,
+      posY: 2101,
+      targetX: 2100,
+      targetY: 2101,
+    });
+    expect(transport.sent[3]).toHaveLength(CLASSIC_PACKET_SIZES.attackMulti);
+    expect(new DataView(transport.sent[3]!.buffer).getUint16(4, true)).toBe(ClassicOpcode.attackMulti);
+  });
+
 });

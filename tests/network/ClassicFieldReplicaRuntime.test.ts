@@ -97,6 +97,21 @@ function attackPacket(id: number): Uint8Array {
   return writer.finish();
 }
 
+function updateEquipPacket(id: number): Uint8Array {
+  const writer = new PacketWriter(CLASSIC_PACKET_SIZES.updateEquip);
+  writer.header({
+    size: CLASSIC_PACKET_SIZES.updateEquip,
+    keyword: 0,
+    checksum: 0,
+    type: ClassicOpcode.updateEquip,
+    id,
+    tick: 450,
+  });
+  for (let slot = 0; slot < 16; slot++) writer.u16(slot === 0 ? 998 : slot + 700);
+  writer.bytes(Uint8Array.from({ length: 16 }, (_, index) => 0xf0 + index));
+  return writer.finish();
+}
+
 function removePacket(id: number): Uint8Array {
   return new PacketWriter(CLASSIC_PACKET_SIZES.removeMob)
     .header({
@@ -152,6 +167,11 @@ describe("ClassicFieldReplica runtime", () => {
       },
     });
 
+    dispatcher.dispatch(updateEquipPacket(456));
+    expect(replica.snapshot(456)?.equipment[0]).toBe(998);
+    expect(replica.snapshot(456)?.equipment[15]).toBe(715);
+    expect([...replica.snapshot(456)!.equipment2.slice(0, 3)]).toEqual([0xf0, 0xf1, 0xf2]);
+
     dispatcher.dispatch(removePacket(456));
     expect(replica.snapshot(456)).toBeNull();
 
@@ -160,6 +180,7 @@ describe("ClassicFieldReplica runtime", () => {
       "update",
       "update",
       "attack",
+      "update",
       "update",
       "remove",
     ]);
@@ -174,12 +195,14 @@ describe("ClassicFieldReplica runtime", () => {
     dispatcher.dispatch(motionPacket(700));
     dispatcher.dispatch(damagePacket(701));
     dispatcher.dispatch(attackPacket(702));
+    dispatcher.dispatch(updateEquipPacket(703));
 
     expect(replica.snapshots()).toHaveLength(0);
     expect(changes.mock.calls.map(([event]) => event.type)).toEqual([
       "missing-motion",
       "missing-damage",
       "missing-attack",
+      "missing-equip",
     ]);
   });
 });

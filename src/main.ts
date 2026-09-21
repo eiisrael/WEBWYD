@@ -1,5 +1,6 @@
 import "./style.css";
 import { GameApp } from "./app/GameApp";
+import { ClassicOnlineBoot, resolveOnlineGatewayUrl } from "./app/ClassicOnlineBoot";
 
 const app = document.querySelector<HTMLElement>("#app");
 
@@ -209,10 +210,33 @@ function showBootError(error: unknown): void {
   if (status) status.textContent = error instanceof Error ? error.message : "Falha ao iniciar";
 }
 
-try {
-  const game = new GameApp(app);
-  void game.start().catch(showBootError);
-} catch (error) {
-  // WebGLRenderer can fail synchronously before start() returns a Promise.
-  showBootError(error);
+const onlineMode = new URLSearchParams(window.location.search).get("mode") === "online";
+
+if (onlineMode) {
+  const loadingTitle = document.querySelector<HTMLElement>("#loading h1");
+  const loadingStatus = document.querySelector<HTMLElement>("#loading-status");
+  if (loadingTitle) loadingTitle.textContent = "Modo online";
+  if (loadingStatus) loadingStatus.textContent = "Aguardando autenticação no TMSrv…";
+
+  const onlineBoot = new ClassicOnlineBoot(app, {
+    gatewayUrl: resolveOnlineGatewayUrl(),
+    onField: (session) => {
+      try {
+        const game = new GameApp(app, { session });
+        void game.start().catch(showBootError);
+      } catch (error) {
+        // WebGLRenderer can fail synchronously before start() returns a Promise.
+        showBootError(error);
+      }
+    },
+  });
+  onlineBoot.focus();
+} else {
+  try {
+    const game = new GameApp(app);
+    void game.start().catch(showBootError);
+  } catch (error) {
+    // WebGLRenderer can fail synchronously before start() returns a Promise.
+    showBootError(error);
+  }
 }

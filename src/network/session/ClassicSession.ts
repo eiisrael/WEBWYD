@@ -31,6 +31,8 @@ import { ClassicOpcode } from "../classic/Protocol";
 import type { ClassicMobCore, ClassicScore } from "../classic/Structures";
 import { ClassicPacketDispatcher } from "../classic/ClassicPacketDispatcher";
 import { ClassicFieldReplica } from "../classic/ClassicFieldReplica";
+import { ClassicPartyReplica } from "../classic/ClassicPartyReplica";
+import { createPartyAcceptPacket } from "../classic/PartyMessages";
 import type {
   ClassicTransport,
   ClassicTransportState,
@@ -144,6 +146,7 @@ type SessionListener<K extends keyof ClassicSessionEventMap> = (
 export class ClassicSession {
   readonly #dispatcher = new ClassicPacketDispatcher();
   readonly fieldReplica = new ClassicFieldReplica(this.#dispatcher);
+  readonly partyReplica = new ClassicPartyReplica(this.#dispatcher);
   readonly #listeners = new Map<keyof ClassicSessionEventMap, Set<(event: unknown) => void>>();
   readonly #cleanups: Array<() => void> = [];
 
@@ -341,6 +344,26 @@ export class ClassicSession {
     }, { id: field.clientId }));
   }
 
+  acceptPartyRequest(): void {
+    this.assertAlive();
+    const field = this.#field;
+    const request = this.partyReplica.snapshot.pendingRequest;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`Aceite de party inválido no estado ${this.#state}`);
+    }
+    if (!request) throw new Error("Nenhum convite de party pendente");
+
+    const leaderId = request.partyId;
+    if (leaderId <= 0 || leaderId === field.clientId) {
+      throw new RangeError(`LeaderID de party inválido: ${leaderId}`);
+    }
+    this.transport.send(createPartyAcceptPacket(
+      leaderId,
+      request.name,
+      { id: field.clientId },
+    ));
+  }
+
   close(code?: number, reason?: string): void {
     if (this.#disposed) return;
     this.transport.close(code, reason);
@@ -363,6 +386,7 @@ export class ClassicSession {
     this.#disposed = true;
     for (const cleanup of this.#cleanups.splice(0)) cleanup();
     this.fieldReplica.dispose();
+    this.partyReplica.dispose();
     this.#dispatcher.clear();
     this.zeroSensitiveBuffers();
     this.#listeners.clear();
@@ -578,6 +602,7 @@ export class ClassicSession {
   private resetSessionData(): void {
     this.zeroSensitiveBuffers();
     this.fieldReplica.clear();
+    this.partyReplica.clear();
     this.#accountName = null;
     this.#characters = [];
     this.#cargoCoin = 0;

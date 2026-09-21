@@ -201,6 +201,26 @@ app.innerHTML = `
     <div id="skill-catalog-grid" class="skill-catalog-grid"></div>
   </section>
 
+  <section id="online-party-panel" class="online-party-panel" aria-label="Grupo online" aria-hidden="true">
+    <header><strong>GRUPO</strong><button id="online-pk-toggle" type="button" aria-pressed="false">PK OFF</button></header>
+    <div id="online-party-members"></div>
+  </section>
+
+  <section id="online-party-invite" class="online-party-invite" aria-label="Convite de grupo" aria-hidden="true">
+    <strong>CONVITE DE GRUPO</strong>
+    <span id="online-party-invite-name">Jogador</span>
+    <div>
+      <button type="button" data-party-invite-accept>ACEITAR</button>
+      <button type="button" data-party-invite-reject>RECUSAR</button>
+    </div>
+  </section>
+
+  <section id="online-shop-panel" class="online-shop-panel" aria-label="Loja do NPC" aria-hidden="true">
+    <header><strong>LOJA</strong><span id="online-shop-tax">Taxa 0</span><button type="button" data-online-shop-close>×</button></header>
+    <div id="online-shop-grid"></div>
+    <footer id="online-shop-status">Aguardando lista do TMSrv…</footer>
+  </section>
+
   <div class="controls-hint"><span>WASD</span> mover · <span>Q/E</span> câmera · <span>RODA</span> zoom · <span>C</span> personagem · <span>I</span> inventário · <span>K</span> skills · <span>G</span> GM · <span>R</span> montaria · <span>F</span> auto-combate · <span>V</span> efeitos</div>
 `;
 

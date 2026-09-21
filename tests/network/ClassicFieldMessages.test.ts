@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCreateMobPacket } from "../../src/network/classic/Messages";
+import { createClientAttackPacket } from "../../src/network/classic/FieldMessages";
 import { PacketWriter } from "../../src/network/classic/PacketIO";
 import {
   CLASSIC_PACKET_SIZES,
@@ -81,5 +82,54 @@ describe("MSG_CreateMob", () => {
     expect(mob.header.type).toBe(ClassicOpcode.createMobTrade);
     expect(mob.hold).toBeNull();
     expect(mob.tradeDescription).toBe("Mercador de teste");
+  });
+});
+
+
+describe("client MSG_Attack", () => {
+  it("reproduz o prefixo MSG_Attack usado pelo cliente para ataque físico de um alvo", () => {
+    const packet = createClientAttackPacket({
+      opcode: ClassicOpcode.attackOne,
+      posX: 2100,
+      posY: 2101,
+      targetX: 2102,
+      targetY: 2101,
+      attackerId: 777,
+      damages: [{ targetId: 1500, damage: -2 }],
+      skillIndex: 0,
+    }, { id: 777, tick: 1234 });
+
+    expect(packet).toHaveLength(CLASSIC_PACKET_SIZES.attackOne);
+    const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+    expect(view.getUint16(0, true)).toBe(CLASSIC_PACKET_SIZES.attackOne);
+    expect(view.getUint16(4, true)).toBe(ClassicOpcode.attackOne);
+    expect(view.getUint16(6, true)).toBe(777);
+    expect(view.getUint32(8, true)).toBe(1234);
+    expect(view.getInt32(16, true)).toBe(0);
+    expect(view.getUint16(34, true)).toBe(2100);
+    expect(view.getUint16(36, true)).toBe(2101);
+    expect(view.getUint16(38, true)).toBe(2102);
+    expect(view.getUint16(40, true)).toBe(2101);
+    expect(view.getUint16(42, true)).toBe(777);
+    expect(view.getUint8(46)).toBe(0xff);
+    expect(view.getInt32(52, true)).toBe(-1);
+    expect(view.getInt16(56, true)).toBe(0);
+    expect(view.getInt32(60, true)).toBe(1500);
+    expect(view.getInt32(64, true)).toBe(-2);
+  });
+
+  it("recusa mais alvos do que a variante de packet comporta", () => {
+    expect(() => createClientAttackPacket({
+      opcode: ClassicOpcode.attackOne,
+      posX: 1,
+      posY: 1,
+      targetX: 2,
+      targetY: 2,
+      attackerId: 7,
+      damages: [
+        { targetId: 8, damage: -2 },
+        { targetId: 9, damage: -2 },
+      ],
+    })).toThrow(/máximo 1/i);
   });
 });

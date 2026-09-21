@@ -570,4 +570,95 @@ describe("ClassicSession", () => {
     expect(new DataView(transport.sent[3]!.buffer).getUint16(4, true)).toBe(ClassicOpcode.attackMulti);
   });
 
+
+  it("replica party, confirma convite e envia modo PK sem estado local inventado", () => {
+    const transport = new FakeTransport();
+    const session = new ClassicSession(transport);
+
+    session.login("conta", "senha", "00:11:22:33:44:55");
+    transport.open();
+    transport.receive(accountConfirmation());
+    session.selectCharacter(0);
+    transport.receive(characterConfirmation());
+
+    const invite = new PacketWriter(CLASSIC_PACKET_SIZES.partyRequest);
+    invite.header({
+      size: CLASSIC_PACKET_SIZES.partyRequest,
+      keyword: 0,
+      checksum: 0,
+      type: ClassicOpcode.partyRequest,
+      id: 321,
+      tick: 4_000,
+    });
+    invite
+      .i8(3).i8(0)
+      .i16(120)
+      .i16(1500).i16(1250)
+      .u16(321)
+      .fixedString("Leader", 16)
+      .padding(2)
+      .i32(777);
+    transport.receive(invite.finish());
+
+    expect(session.snapshot.partyInvite?.leader).toMatchObject({
+      id: 321,
+      name: "Leader",
+      partyIndex: 0,
+    });
+
+    session.acceptPartyInvite();
+    expect(session.snapshot.partyInvite).toBeNull();
+    const confirm = transport.sent.at(-1)!;
+    expect(confirm).toHaveLength(CLASSIC_PACKET_SIZES.partyConfirm2);
+    expect(new DataView(confirm.buffer, confirm.byteOffset, confirm.byteLength).getUint16(4, true))
+      .toBe(ClassicOpcode.partyConfirm2);
+
+    const addMember = (id: number, partyIndex: number, name: string) => {
+      const writer = new PacketWriter(CLASSIC_PACKET_SIZES.partyAdd);
+      writer.header({
+        size: CLASSIC_PACKET_SIZES.partyAdd,
+        keyword: 0,
+        checksum: 0,
+        type: ClassicOpcode.partyAdd,
+        id: 777,
+        tick: 4_100 + partyIndex,
+      });
+      writer
+        .i8(3).i8(partyIndex)
+        .i16(120)
+        .i16(1500).i16(1250)
+        .u16(id)
+        .fixedString(name, 16)
+        .padding(2);
+      transport.receive(writer.finish());
+    };
+
+    addMember(321, 0, "Leader");
+    addMember(777, 1, "Huntress");
+    expect(session.party.map((member) => member.id)).toEqual([321, 777]);
+    expect(session.isPartyMember(321)).toBe(true);
+
+    session.setPkMode(true);
+    expect(session.snapshot.pkMode).toBe(true);
+    const pk = transport.sent.at(-1)!;
+    const pkView = new DataView(pk.buffer, pk.byteOffset, pk.byteLength);
+    expect(pk).toHaveLength(CLASSIC_PACKET_SIZES.setPkMode);
+    expect(pkView.getUint16(4, true)).toBe(ClassicOpcode.setPkMode);
+    expect(pkView.getInt32(12, true)).toBe(1);
+
+    const remove = new PacketWriter(CLASSIC_PACKET_SIZES.partyRemove)
+      .header({
+        size: CLASSIC_PACKET_SIZES.partyRemove,
+        keyword: 0,
+        checksum: 0,
+        type: ClassicOpcode.partyRemove,
+        id: 777,
+        tick: 4_200,
+      })
+      .i32(321)
+      .finish();
+    transport.receive(remove);
+    expect(session.party).toEqual([]);
+  });
+
 });

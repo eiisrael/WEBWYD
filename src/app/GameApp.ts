@@ -346,7 +346,10 @@ export class GameApp {
     }
     this.#hud.configureSkills(
       this.#skills.skills.map((skill) => ({ ...skill, offensive: isOffensiveBarSkill(skill) })),
-      (slot) => this.requestSkill(slot),
+      (slot) => {
+        if (this.#onlineSession) this.requestOnlineSkillBySlot(slot);
+        else this.requestSkill(slot);
+      },
     );
     this.#hud.setAutoCombat(this.#autoCombatMode, this.#macroSkillSlots);
     this.syncAutoCombatAuxiliary();

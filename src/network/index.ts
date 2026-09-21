@@ -1,3 +1,4 @@
+export * from "./classic/ClassicRoute";
 export * from "./classic/FieldMessages";
 export * from "./classic/ClassicFieldReplica";
 export * from "./classic/Structures";

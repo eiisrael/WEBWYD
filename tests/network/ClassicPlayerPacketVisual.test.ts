@@ -73,7 +73,7 @@ describe("resolveClassicPacketPlayerVisual", () => {
 
   it("recusa classe ou armadura sem look auditado", () => {
     const unknownClass = Array.from({ length: 16 }, () => 0);
-    unknownClass[0] = 999;
+    unknownClass[0] = 998;
     expect(resolveClassicPacketPlayerVisual(catalog, unknownClass)).toBeNull();
 
     const unknownBody = Array.from({ length: 16 }, () => 0);

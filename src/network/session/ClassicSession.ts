@@ -1,5 +1,6 @@
 import {
   createAccountLoginPacket,
+  createActionPacket,
   createCharacterLoginPacket,
   parseAccountLoginConfirmation,
   parseCharacterLoginConfirmation,
@@ -89,6 +90,15 @@ export interface ClassicSessionSnapshot {
   readonly cargoCoin: number;
   readonly selectedSlot: number | null;
   readonly field: ClassicFieldSession | null;
+}
+
+export interface ClassicMoveIntent {
+  readonly posX: number;
+  readonly posY: number;
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly route: ArrayLike<number>;
+  readonly speed: number;
 }
 
 export interface ClassicSessionEventMap {
@@ -198,6 +208,25 @@ export class ClassicSession {
     this.#selectedSlot = slot;
     this.#field = null;
     this.setState("entering-world");
+  }
+
+  sendMoveIntent(intent: ClassicMoveIntent): void {
+    this.assertAlive();
+    const field = this.#field;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`Movimento inválido no estado ${this.#state}`);
+    }
+
+    const speed = Math.max(0, Math.min(15, Math.trunc(intent.speed)));
+    this.transport.send(createActionPacket({
+      posX: Math.trunc(intent.posX),
+      posY: Math.trunc(intent.posY),
+      effect: 0,
+      speed,
+      route: intent.route,
+      targetX: Math.trunc(intent.targetX),
+      targetY: Math.trunc(intent.targetY),
+    }, { id: field.clientId }));
   }
 
   close(code?: number, reason?: string): void {

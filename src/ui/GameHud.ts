@@ -59,6 +59,20 @@ export interface BuffHudEntry {
 
 export type ChatChannel = "general" | "party" | "guild";
 
+export interface OnlinePartyHudMember {
+  readonly id: number;
+  readonly name: string;
+  readonly level: number;
+  readonly hp: number;
+  readonly maxHp: number;
+}
+
+export interface OnlineShopHudSnapshot {
+  readonly shopType: number;
+  readonly tax: number;
+  readonly items: readonly { readonly index: number }[];
+}
+
 interface ClassicSkillCatalogClass {
   readonly key: string;
   readonly name: string;
@@ -107,6 +121,9 @@ export class GameHud {
   onAutoCombatMountThresholdChanged: ((percentage: number) => void) | null = null;
   onAutoCombatPositionModeSelected: ((mode: AutoCombatPositionMode) => void) | null = null;
   onChatSubmit: ((message: string, channel: ChatChannel) => void) | null = null;
+  onPartyInviteDecision: ((accept: boolean) => void) | null = null;
+  onPkModeToggle: (() => void) | null = null;
+  onOnlineShopClose: (() => void) | null = null;
   readonly #target = requireElement<HTMLElement>("#target-status");
   readonly #targetName = requireElement<HTMLElement>("#target-name");
   readonly #targetLevel = requireElement<HTMLElement>("#target-level");
@@ -223,6 +240,18 @@ export class GameHud {
       this.setChatChannel(CHAT_CHANNELS[(index + 1) % CHAT_CHANNELS.length] ?? "general");
       if (this.#chatShell.classList.contains("is-chatting")) this.#chatInput.focus();
     });
+    document.querySelector<HTMLButtonElement>("[data-party-invite-accept]")?.addEventListener("click", () => {
+      this.onPartyInviteDecision?.(true);
+    });
+    document.querySelector<HTMLButtonElement>("[data-party-invite-reject]")?.addEventListener("click", () => {
+      this.onPartyInviteDecision?.(false);
+    });
+    document.querySelector<HTMLButtonElement>("#online-pk-toggle")?.addEventListener("click", () => {
+      this.onPkModeToggle?.();
+    });
+    document.querySelector<HTMLButtonElement>("[data-online-shop-close]")?.addEventListener("click", () => {
+      this.onOnlineShopClose?.();
+    });
     this.#chatInput.addEventListener("keydown", this.chatInputKeyDown);
     window.addEventListener("keydown", this.chatGlobalKeyDown, true);
   }
@@ -244,6 +273,72 @@ export class GameHud {
     this.#state = state;
     this.#unsubscribe = state.subscribe((snapshot) => this.renderPlayer(snapshot));
     void this.ensureItemIconCatalog();
+  }
+
+  setOnlinePartyInvite(name: string | null): void {
+    const panel = document.querySelector<HTMLElement>("#online-party-invite");
+    const label = document.querySelector<HTMLElement>("#online-party-invite-name");
+    if (!panel || !label) return;
+    panel.classList.toggle("is-visible", name !== null);
+    panel.setAttribute("aria-hidden", String(name === null));
+    if (name !== null) label.textContent = name.replaceAll("_", " ");
+  }
+
+  setOnlinePartyMembers(members: readonly OnlinePartyHudMember[]): void {
+    const panel = document.querySelector<HTMLElement>("#online-party-panel");
+    const root = document.querySelector<HTMLElement>("#online-party-members");
+    if (!panel || !root) return;
+    panel.classList.toggle("is-visible", members.length > 0);
+    panel.setAttribute("aria-hidden", String(members.length === 0));
+    root.replaceChildren();
+    for (const member of members) {
+      const row = document.createElement("div");
+      row.className = "online-party-member";
+      const hp = member.maxHp > 0 ? Math.max(0, Math.min(100, member.hp / member.maxHp * 100)) : 0;
+      row.innerHTML = `<strong></strong><small>Lv. ${member.level}</small><i style="--party-hp:${hp}%"></i>`;
+      const name = row.querySelector("strong");
+      if (name) name.textContent = member.name.replaceAll("_", " ");
+      root.append(row);
+    }
+  }
+
+  setOnlinePkMode(enabled: boolean): void {
+    const button = document.querySelector<HTMLButtonElement>("#online-pk-toggle");
+    if (!button) return;
+    button.classList.toggle("is-active", enabled);
+    button.setAttribute("aria-pressed", String(enabled));
+    button.textContent = enabled ? "PK ON" : "PK OFF";
+  }
+
+  setOnlineShop(shop: OnlineShopHudSnapshot | null): void {
+    const panel = document.querySelector<HTMLElement>("#online-shop-panel");
+    const grid = document.querySelector<HTMLElement>("#online-shop-grid");
+    const tax = document.querySelector<HTMLElement>("#online-shop-tax");
+    const status = document.querySelector<HTMLElement>("#online-shop-status");
+    if (!panel || !grid || !tax || !status) return;
+    panel.classList.toggle("is-visible", shop !== null);
+    panel.setAttribute("aria-hidden", String(shop === null));
+    grid.replaceChildren();
+    if (!shop) return;
+    tax.textContent = `Taxa ${shop.tax}`;
+    const visible = shop.shopType === 4 ? 15 : 27;
+    for (let slot = 0; slot < visible; slot++) {
+      const item = shop.items[slot];
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "online-shop-item";
+      if (!item || item.index <= 0) {
+        button.classList.add("is-empty");
+        button.disabled = true;
+        button.setAttribute("aria-label", "Slot vazio");
+      } else {
+        button.textContent = `#${item.index}`;
+        button.title = `Item clássico #${item.index} · slot ${slot}`;
+      }
+      grid.append(button);
+    }
+    const count = shop.items.slice(0, visible).filter((item) => item.index > 0).length;
+    status.textContent = `${count} item(ns) recebidos do TMSrv · compra ainda bloqueada até MSG_Buy/ReqBuy estar conectado.`;
   }
 
   setTarget(target: TargetHudSnapshot | null): void {

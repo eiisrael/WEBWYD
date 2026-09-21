@@ -51,6 +51,14 @@ interface ObjectRetryState extends RetryState {
   readonly records: readonly MapObjectRecord[];
 }
 
+export interface ClassicWorldOptions {
+  /**
+   * Offline keeps the authored BASE759 spawn simulation. Online mode disables
+   * it so actors can be materialized exclusively from TMSrv packets.
+   */
+  readonly enableLocalSpawns?: boolean;
+}
+
 export class ClassicWorld {
   readonly object = new THREE.Group();
   readonly navigation: ClassicNavigation;
@@ -79,6 +87,7 @@ export class ClassicWorld {
   #lastStreamingPosition: WydPosition;
   #desiredFields = new Set<string>();
   #activeFieldKey = "";
+  readonly #localSpawnsEnabled: boolean;
 
   /** Camada viva de NPCs/monstros; fica nula apenas durante o boot assíncrono. */
   get spawns(): ClassicSpawnManager | null {
@@ -88,7 +97,9 @@ export class ClassicWorld {
   constructor(
     private readonly assets: ClassicAssetSource,
     readonly origin: WydPosition,
+    options: ClassicWorldOptions = {},
   ) {
+    this.#localSpawnsEnabled = options.enableLocalSpawns ?? true;
     this.#lastStreamingPosition = { ...origin };
     this.models = new ModelLibrary(assets);
     this.navigation = new ClassicNavigation({
@@ -282,6 +293,7 @@ export class ClassicWorld {
   }
 
   private startSpawnSubsystem(): void {
+    if (!this.#localSpawnsEnabled) return;
     if (this.#spawns || this.#spawnStartJob) return;
     const job = ClassicSpawnManager.create(this.assets, {
       origin: this.origin,

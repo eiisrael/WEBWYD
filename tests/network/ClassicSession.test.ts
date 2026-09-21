@@ -209,6 +209,25 @@ function etcUpdate(): Uint8Array {
     .finish();
 }
 
+function affectUpdate(): Uint8Array {
+  const writer = new PacketWriter(CLASSIC_PACKET_SIZES.updateAffect);
+  writer.header({
+    size: CLASSIC_PACKET_SIZES.updateAffect,
+    keyword: 0,
+    checksum: 0,
+    type: ClassicOpcode.updateAffect,
+    id: 777,
+    tick: 3_450,
+  });
+  for (let index = 0; index < 32; index++) {
+    writer.u8(index === 0 ? 14 : 0);
+    writer.u8(index === 0 ? 10 : 0);
+    writer.u16(index === 0 ? 7 : 0);
+    writer.u32(index === 0 ? 180_000 : 0);
+  }
+  return writer.finish();
+}
+
 function localAttackUpdate(): Uint8Array {
   const writer = new PacketWriter(CLASSIC_PACKET_SIZES.attackOne);
   writer.header({
@@ -383,13 +402,21 @@ describe("ClassicSession", () => {
       requestedMp: 333,
     });
 
+    transport.receive(affectUpdate());
+    expect(session.snapshot.field?.runtime.activeAffects[0]).toEqual({
+      type: 14,
+      value: 10,
+      level: 7,
+      time: 180_000,
+    });
+
     transport.receive(hpModeUpdate());
     expect(session.snapshot.field?.runtime).toMatchObject({
       currentHp: 0,
       requestedHp: 0,
       mode: 22,
     });
-    expect(runtimeEvents).toHaveLength(6);
+    expect(runtimeEvents).toHaveLength(7);
   });
 
   it("envia MSG_Action com ClientID autoritativo após entrar no Field", () => {

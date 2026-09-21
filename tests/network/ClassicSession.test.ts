@@ -209,6 +209,32 @@ function etcUpdate(): Uint8Array {
     .finish();
 }
 
+function localAttackUpdate(): Uint8Array {
+  const writer = new PacketWriter(CLASSIC_PACKET_SIZES.attackOne);
+  writer.header({
+    size: CLASSIC_PACKET_SIZES.attackOne,
+    keyword: 0,
+    checksum: 0,
+    type: ClassicOpcode.attackOne,
+    id: 777,
+    tick: 3_500,
+  });
+  writer.u32(0);
+  writer.i32(333); // MSG_AttackOne::CurrentMp on server -> client
+  writer.u32(0);
+  writer.u64(0n);
+  writer.i16(0);
+  writer.u16(2100).u16(2101);
+  writer.u16(2102).u16(2101);
+  writer.u16(777).u16(0);
+  writer.u8(4).u8(0).u8(0).u8(0);
+  writer.i16(0);
+  writer.i32(1190); // MSG_AttackOne::CurrentHp
+  writer.i16(0).i16(0);
+  writer.i32(1500).i32(125);
+  return writer.finish();
+}
+
 describe("ClassicSession", () => {
   it("percorre login → seleção → field usando packets clássicos", () => {
     const transport = new FakeTransport();
@@ -350,13 +376,20 @@ describe("ClassicSession", () => {
       honor: 16000,
     });
 
+    transport.receive(localAttackUpdate());
+    expect(session.snapshot.field?.runtime).toMatchObject({
+      currentHp: 1190,
+      currentMp: 333,
+      requestedMp: 333,
+    });
+
     transport.receive(hpModeUpdate());
     expect(session.snapshot.field?.runtime).toMatchObject({
       currentHp: 0,
       requestedHp: 0,
       mode: 22,
     });
-    expect(runtimeEvents).toHaveLength(5);
+    expect(runtimeEvents).toHaveLength(6);
   });
 
   it("envia MSG_Action com ClientID autoritativo após entrar no Field", () => {

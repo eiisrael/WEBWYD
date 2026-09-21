@@ -57,6 +57,7 @@ import { ClassicNetworkActorLayer } from "../render/npcs/ClassicNetworkActorLaye
 import { ClassicNetworkPlayerLayer } from "../render/npcs/ClassicNetworkPlayerLayer";
 import type { ClassicFieldSession, ClassicPlayerRuntime, ClassicSession } from "../network/session/ClassicSession";
 import { encodeClassicFieldRoute } from "../network/classic/ClassicRoute";
+import type { ClassicFieldActor } from "../network/classic/ClassicFieldReplica";
 import { configureClassicDdsTextureSupport } from "../render/textures/ClassicDdsTextureLoader";
 import {
   connectedFieldRegions,
@@ -73,6 +74,9 @@ const CLICK_MARKER_LIFETIME = 0.72;
 const HELD_GROUND_UPDATE_SECONDS = 0.2;
 const HELD_GROUND_DESTINATION_EPSILON = 0.08;
 const BEAST_MASTER_SUMMON_PACK_SIZE = 10;
+const ONLINE_BASIC_ATTACK_RANGE = 1.6;
+const ONLINE_ATTACK_INTERVAL_SECONDS = 1;
+const ONLINE_APPROACH_INTERVAL_SECONDS = 0.3;
 
 interface PendingBowAttack {
   readonly spawns: ClassicSpawnManager;
@@ -173,6 +177,10 @@ export class GameApp {
   readonly #beastMasterSummons = new Map<number, ClassicBeastMasterSummon[]>();
   #networkActors: ClassicNetworkActorLayer | null = null;
   #networkPlayers: ClassicNetworkPlayerLayer | null = null;
+  #onlineTargetId: number | null = null;
+  #onlinePendingAttack = false;
+  #onlineAttackCooldown = 0;
+  #onlineApproachCooldown = 0;
   readonly #onlineUnsubscribers: (() => void)[] = [];
   #disposed = false;
 
@@ -302,18 +310,32 @@ export class GameApp {
         this.#onlineSession.fieldReplica.onChange((event) => {
           const field = this.#onlineSession?.snapshot.field;
           if (!field || !this.#player) return;
-          if (
-            (event.type === "create" || event.type === "update" || event.type === "attack")
-            && event.actor.id === field.clientId
-          ) {
-            const target = { x: event.actor.posX + 0.5, y: event.actor.posY + 0.5 };
-            if (Math.hypot(
-              target.x - this.#player.position.x,
-              target.y - this.#player.position.y,
-            ) > 0.01) {
-              this.#player.teleport(target);
-            }
+
+          if (event.type === "remove" && event.actorId === this.#onlineTargetId) {
+            this.clearOnlineTarget();
+            return;
           }
+          if (event.type === "missing-attack" && event.actorId === field.clientId) {
+            this.#player.playAttack();
+            return;
+          }
+          if (event.type !== "create" && event.type !== "update" && event.type !== "attack") {
+            return;
+          }
+
+          if (event.actor.id === this.#onlineTargetId && event.actor.score.hp <= 0) {
+            this.clearOnlineTarget();
+          }
+          if (event.actor.id !== field.clientId) return;
+
+          const target = { x: event.actor.posX + 0.5, y: event.actor.posY + 0.5 };
+          if (Math.hypot(
+            target.x - this.#player.position.x,
+            target.y - this.#player.position.y,
+          ) > 0.01) {
+            this.#player.teleport(target);
+          }
+          if (event.type === "attack") this.#player.playAttack();
         }),
       );
     }
@@ -601,7 +623,9 @@ export class GameApp {
       }
       this.#networkActors?.update(dt, this.#player.position);
       this.#networkPlayers?.update(dt, this.#player.position);
-      if (!this.#onlineSession) {
+      if (this.#onlineSession) {
+        this.updateOnlineTargetAction(dt);
+      } else {
         this.bindSpawnGameplay();
         this.updateCombat(dt, mouseForward);
         this.updateBeastMasterSummons(dt);
@@ -629,27 +653,135 @@ export class GameApp {
     if (!session || !field || !this.#world || !this.#player || !this.#playerState.snapshot.alive) return;
 
     this.#raycaster.setFromCamera(pointer, this.#camera);
+    const actor = this.onlineActorFromRaycast(field.clientId);
+    if (actor) {
+      this.selectOnlineTarget(actor);
+      return;
+    }
+
+    this.clearOnlineTarget();
     const hit = this.#raycaster.intersectObject(this.#world.object, true)[0];
     if (!hit) return;
 
     const requested = toWyd(hit.point.x, hit.point.z, this.#world.origin);
+    if (!this.sendOnlineMoveRequest(requested, true)) return;
+
+    this.#clickMarker.position.set(hit.point.x, hit.point.y + 0.06, hit.point.z);
+    this.#clickMarker.scale.setScalar(0.72);
+    (this.#clickMarker.material as THREE.MeshBasicMaterial).opacity = 0.85;
+    this.#clickMarker.visible = true;
+    this.#clickMarkerElapsed = 0;
+  };
+
+  private onlineActorFromRaycast(ownClientId: number): ClassicFieldActor | null {
+    const hits: THREE.Intersection<THREE.Object3D>[] = [];
+    if (this.#networkPlayers) {
+      hits.push(...this.#raycaster.intersectObject(this.#networkPlayers.object, true));
+    }
+    if (this.#networkActors) {
+      hits.push(...this.#raycaster.intersectObject(this.#networkActors.object, true));
+    }
+    hits.sort((left, right) => left.distance - right.distance);
+
+    for (const hit of hits) {
+      const actor = this.#networkPlayers?.snapshotFromObject(hit.object)
+        ?? this.#networkActors?.snapshotFromObject(hit.object)
+        ?? null;
+      if (!actor || actor.id === ownClientId || actor.score.hp <= 0) continue;
+      return actor;
+    }
+    return null;
+  }
+
+  private selectOnlineTarget(actor: ClassicFieldActor): void {
+    this.#onlineTargetId = actor.id;
+    this.#onlinePendingAttack = true;
+    this.#onlineAttackCooldown = 0;
+    this.#onlineApproachCooldown = 0;
+    this.#clickMarker.visible = false;
+    this.#hud.addLog(`ALVO ONLINE · ${actor.name} [${actor.id}]`, "system");
+  }
+
+  private clearOnlineTarget(): void {
+    this.#onlineTargetId = null;
+    this.#onlinePendingAttack = false;
+    this.#onlineApproachCooldown = 0;
+  }
+
+  private updateOnlineTargetAction(deltaSeconds: number): void {
+    const session = this.#onlineSession;
+    const field = session?.snapshot.field;
+    if (!session || !field || !this.#world || !this.#player) return;
+
+    this.#onlineAttackCooldown = Math.max(0, this.#onlineAttackCooldown - deltaSeconds);
+    this.#onlineApproachCooldown = Math.max(0, this.#onlineApproachCooldown - deltaSeconds);
+    if (!this.#onlinePendingAttack || this.#onlineTargetId === null) return;
+
+    const actor = session.fieldReplica.snapshot(this.#onlineTargetId);
+    if (!actor || actor.score.hp <= 0) {
+      this.clearOnlineTarget();
+      return;
+    }
+
+    const target = { x: actor.posX + 0.5, y: actor.posY + 0.5 };
+    const distance = Math.hypot(
+      target.x - this.#player.position.x,
+      target.y - this.#player.position.y,
+    );
+    this.#player.faceToward(target);
+
+    if (distance > ONLINE_BASIC_ATTACK_RANGE) {
+      if (this.#onlineApproachCooldown <= 0) {
+        if (this.sendOnlineMoveRequest(target, false)) {
+          this.#onlineApproachCooldown = ONLINE_APPROACH_INTERVAL_SECONDS;
+          this.#onlineAttackCooldown = Math.max(this.#onlineAttackCooldown, 0.7);
+        }
+      }
+      return;
+    }
+    if (this.#onlineAttackCooldown > 0) return;
+
+    try {
+      session.sendBasicAttackIntent({
+        targetId: actor.id,
+        posX: Math.floor(this.#player.position.x),
+        posY: Math.floor(this.#player.position.y),
+        targetX: actor.posX,
+        targetY: actor.posY,
+      });
+      this.#onlineAttackCooldown = ONLINE_ATTACK_INTERVAL_SECONDS;
+      this.#onlinePendingAttack = false;
+    } catch (error) {
+      this.#hud.addLog(
+        error instanceof Error ? error.message : "Falha ao enviar MSG_Attack.",
+        "system",
+      );
+      this.clearOnlineTarget();
+    }
+  }
+
+  private sendOnlineMoveRequest(requested: WydPosition, logFailure: boolean): boolean {
+    const session = this.#onlineSession;
+    const field = session?.snapshot.field;
+    if (!session || !field || !this.#world || !this.#player) return false;
+
     const path = this.#world.navigation.findPath(this.#player.position, requested, {
       allowDiagonal: true,
       maxVisited: 65_536,
     });
     if (path.status !== "found") {
-      if (path.status !== "already-there") {
+      if (logFailure && path.status !== "already-there") {
         this.#hud.addLog(`Rota online indisponível: ${path.status}.`, "system");
       }
-      return;
+      return false;
     }
 
     const encoded = encodeClassicFieldRoute(path.points);
-    if (!encoded) return;
+    if (!encoded) return false;
     const speed = field.runtime.score.attackRun & 0x0f;
     if (speed <= 0) {
-      this.#hud.addLog("TMSrv informou velocidade de movimento zero.", "system");
-      return;
+      if (logFailure) this.#hud.addLog("TMSrv informou velocidade de movimento zero.", "system");
+      return false;
     }
 
     try {
@@ -662,11 +794,13 @@ export class GameApp {
         speed,
       });
     } catch (error) {
-      this.#hud.addLog(
-        error instanceof Error ? error.message : "Falha ao enviar MSG_Action.",
-        "system",
-      );
-      return;
+      if (logFailure) {
+        this.#hud.addLog(
+          error instanceof Error ? error.message : "Falha ao enviar MSG_Action.",
+          "system",
+        );
+      }
+      return false;
     }
 
     // Same client-side prediction used by TMHuman::GetRoute. TMSrv remains
@@ -675,11 +809,7 @@ export class GameApp {
       x: encoded.target.x + 0.5,
       y: encoded.target.y + 0.5,
     });
-    this.#clickMarker.position.set(hit.point.x, hit.point.y + 0.06, hit.point.z);
-    this.#clickMarker.scale.setScalar(0.72);
-    (this.#clickMarker.material as THREE.MeshBasicMaterial).opacity = 0.85;
-    this.#clickMarker.visible = true;
-    this.#clickMarkerElapsed = 0;
+    return true;
   };
 
   private readonly groundClick = (pointer: THREE.Vector2): void => {

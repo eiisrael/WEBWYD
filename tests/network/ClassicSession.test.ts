@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PacketWriter } from "../../src/network/classic/PacketIO";
+import { parseActionPacket } from "../../src/network/classic/Messages";
 import {
   CLASSIC_PACKET_SIZES,
   CLASSIC_STRUCTURE_SIZES,
@@ -358,4 +359,48 @@ describe("ClassicSession", () => {
     expect(runtimeEvents).toHaveLength(5);
   });
 
+  it("envia MSG_Action com ClientID autoritativo após entrar no Field", () => {
+    const transport = new FakeTransport();
+    const session = new ClassicSession(transport);
+
+    expect(() => session.sendMoveIntent({
+      posX: 2100,
+      posY: 2101,
+      targetX: 2102,
+      targetY: 2101,
+      route: Uint8Array.from([0x36, 0x36]),
+      speed: 6,
+    })).toThrow(/estado/i);
+
+    session.login("conta", "senha", "00:11:22:33:44:55");
+    transport.open();
+    transport.receive(accountConfirmation());
+    session.selectCharacter(0);
+    transport.receive(characterConfirmation());
+
+    session.sendMoveIntent({
+      posX: 2100,
+      posY: 2101,
+      targetX: 2102,
+      targetY: 2101,
+      route: Uint8Array.from([0x36, 0x36]),
+      speed: 6,
+    });
+
+    expect(transport.sent).toHaveLength(3);
+    const action = parseActionPacket(transport.sent[2]!);
+    expect(action.header).toMatchObject({
+      type: ClassicOpcode.action,
+      id: 777,
+    });
+    expect(action).toMatchObject({
+      posX: 2100,
+      posY: 2101,
+      effect: 0,
+      speed: 6,
+      targetX: 2102,
+      targetY: 2101,
+    });
+    expect([...action.route.slice(0, 3)]).toEqual([0x36, 0x36, 0]);
+  });
 });

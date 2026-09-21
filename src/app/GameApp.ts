@@ -54,6 +54,7 @@ import { ClassicEtherealExplosionEffect } from "../render/effects/ClassicEtherea
 import { ClassicLevelUpEffects } from "../render/effects/ClassicLevelUpEffects";
 import { ClassicInventoryPreview } from "../render/inventory/ClassicInventoryPreview";
 import { ClassicNetworkActorLayer } from "../render/npcs/ClassicNetworkActorLayer";
+import { ClassicNetworkPlayerLayer } from "../render/npcs/ClassicNetworkPlayerLayer";
 import type { ClassicFieldSession, ClassicPlayerRuntime, ClassicSession } from "../network/session/ClassicSession";
 import { encodeClassicFieldRoute } from "../network/classic/ClassicRoute";
 import { configureClassicDdsTextureSupport } from "../render/textures/ClassicDdsTextureLoader";
@@ -171,6 +172,7 @@ export class GameApp {
   #summonGeneration = 0;
   readonly #beastMasterSummons = new Map<number, ClassicBeastMasterSummon[]>();
   #networkActors: ClassicNetworkActorLayer | null = null;
+  #networkPlayers: ClassicNetworkPlayerLayer | null = null;
   readonly #onlineUnsubscribers: (() => void)[] = [];
   #disposed = false;
 
@@ -349,6 +351,8 @@ export class GameApp {
     for (const unsubscribe of this.#onlineUnsubscribers.splice(0)) unsubscribe();
     this.#networkActors?.dispose();
     this.#networkActors = null;
+    this.#networkPlayers?.dispose();
+    this.#networkPlayers = null;
     this.#input.dispose();
     this.#hud.dispose();
     this.clearBeastMasterSummons();
@@ -434,15 +438,27 @@ export class GameApp {
     world.setEffectsEnabled(this.#effectsEnabled);
     this.#scene.add(world.object);
     if (this.#onlineSession) {
+      const networkEnvironment = {
+        origin: world.origin,
+        heightAt: (position: WydPosition) => world.heightAt(position),
+      };
       this.#networkActors = await ClassicNetworkActorLayer.create(
         assets,
         this.#onlineSession.fieldReplica,
-        {
-          origin: world.origin,
-          heightAt: (position) => world.heightAt(position),
-        },
+        networkEnvironment,
       );
       this.#scene.add(this.#networkActors.object);
+
+      const field = this.#onlineSession.snapshot.field;
+      if (field) {
+        this.#networkPlayers = await ClassicNetworkPlayerLayer.create(
+          assets,
+          this.#onlineSession.fieldReplica,
+          networkEnvironment,
+          field.clientId,
+        );
+        this.#scene.add(this.#networkPlayers.object);
+      }
     }
     this.#player = new Player(world, spawn);
     this.#player.setBeforeClassicVisualRelease(() => this.#skillEffects.clear());
@@ -584,6 +600,7 @@ export class GameApp {
         this.#world?.update(dt, this.#player.position);
       }
       this.#networkActors?.update(dt, this.#player.position);
+      this.#networkPlayers?.update(dt, this.#player.position);
       if (!this.#onlineSession) {
         this.bindSpawnGameplay();
         this.updateCombat(dt, mouseForward);

@@ -16,6 +16,12 @@ export interface ClassicRemoveMobMessage {
   readonly removeType: number;
 }
 
+export interface ClassicUpdateEquipMessage {
+  readonly header: ClassicPacketHeader;
+  readonly equipment: readonly number[];
+  readonly equipment2: Uint8Array;
+}
+
 export interface ClassicHpMpMessage {
   readonly header: ClassicPacketHeader;
   readonly hp: number;
@@ -136,6 +142,23 @@ export function parseMotionPacket(source: ArrayBuffer | ArrayBufferView): Classi
   const direction = u32BitsToFloat(directionBits);
   assertEmpty(reader, "MSG_Motion");
   return { header, motion, parm, directionBits, direction };
+}
+
+export function parseUpdateEquipPacket(
+  source: ArrayBuffer | ArrayBufferView,
+): ClassicUpdateEquipMessage {
+  const reader = new PacketReader(source);
+  const header = reader.header();
+  assertPacket(
+    header,
+    ClassicOpcode.updateEquip,
+    CLASSIC_PACKET_SIZES.updateEquip,
+    "MSG_UpdateEquip",
+  );
+  const equipment = Array.from({ length: 16 }, () => reader.u16());
+  const equipment2 = reader.bytes(16);
+  assertEmpty(reader, "MSG_UpdateEquip");
+  return { header, equipment, equipment2 };
 }
 
 export function parseRemoveMobPacket(

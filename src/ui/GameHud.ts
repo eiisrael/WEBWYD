@@ -288,8 +288,10 @@ export class GameHud {
     const panel = document.querySelector<HTMLElement>("#online-party-panel");
     const root = document.querySelector<HTMLElement>("#online-party-members");
     if (!panel || !root) return;
-    panel.classList.toggle("is-visible", members.length > 0);
-    panel.setAttribute("aria-hidden", String(members.length === 0));
+    // Este método só é alimentado pela sessão online. Mantenha o painel
+    // disponível mesmo solo para o controle PK, que na BASE independe de party.
+    panel.classList.add("is-visible");
+    panel.setAttribute("aria-hidden", "false");
     root.replaceChildren();
     for (const member of members) {
       const row = document.createElement("div");

@@ -22,6 +22,18 @@ export interface ClassicUpdateEquipMessage {
   readonly equipment2: Uint8Array;
 }
 
+export interface ClassicAffect {
+  readonly type: number;
+  readonly value: number;
+  readonly level: number;
+  readonly time: number;
+}
+
+export interface ClassicUpdateAffectMessage {
+  readonly header: ClassicPacketHeader;
+  readonly affects: readonly ClassicAffect[];
+}
+
 export interface ClassicHpMpMessage {
   readonly header: ClassicPacketHeader;
   readonly hp: number;
@@ -142,6 +154,27 @@ export function parseMotionPacket(source: ArrayBuffer | ArrayBufferView): Classi
   const direction = u32BitsToFloat(directionBits);
   assertEmpty(reader, "MSG_Motion");
   return { header, motion, parm, directionBits, direction };
+}
+
+export function parseUpdateAffectPacket(
+  source: ArrayBuffer | ArrayBufferView,
+): ClassicUpdateAffectMessage {
+  const reader = new PacketReader(source);
+  const header = reader.header();
+  assertPacket(
+    header,
+    ClassicOpcode.updateAffect,
+    CLASSIC_PACKET_SIZES.updateAffect,
+    "MSG_UpdateAffect",
+  );
+  const affects = Array.from({ length: 32 }, (): ClassicAffect => ({
+    type: reader.u8(),
+    value: reader.u8(),
+    level: reader.u16(),
+    time: reader.u32(),
+  }));
+  assertEmpty(reader, "MSG_UpdateAffect");
+  return { header, affects };
 }
 
 export function parseUpdateEquipPacket(

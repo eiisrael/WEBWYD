@@ -104,6 +104,7 @@ export class GameApp {
   readonly #raycaster = new THREE.Raycaster();
   readonly #clickMarker = createClickMarker();
   readonly #heldGroundPointer = new THREE.Vector2();
+  readonly #zeroMovement = new THREE.Vector2();
   readonly #input: GameInput;
   readonly #hud = new GameHud();
   readonly #telemetry = new RuntimeTelemetry();
@@ -215,10 +216,14 @@ export class GameApp {
     this.#levelUpEffects = new ClassicLevelUpEffects(this.#scene);
     this.#damageNumbers = new ClassicDamageNumbers(this.container);
     this.#input = new GameInput(this.#renderer.domElement);
-    this.#input.onGroundClick = this.groundClick;
+    this.#input.onGroundClick = this.#onlineSession ? () => undefined : this.groundClick;
     this.#input.onCameraRotate = (yaw, pitch) => this.#cameraRig.rotate(yaw, pitch);
     this.#input.onZoom = (delta) => this.#cameraRig.zoom(delta);
     this.#input.onSpeedToggle = () => {
+      if (this.#onlineSession) {
+        this.rejectOnlineLocalAction("Modo G");
+        return;
+      }
       if (!this.#player) return;
       this.breakInvisibility();
       const active = this.#player.toggleSpeedBoost();
@@ -235,10 +240,19 @@ export class GameApp {
     this.#input.onInventoryToggle = () => this.#hud.toggleInventory();
     this.#input.onCharacterToggle = () => this.#hud.toggleCharacter();
     this.#input.onSkillMenuToggle = () => this.#hud.toggleSkills();
-    this.#input.onMountToggle = () => this.toggleMount();
-    this.#input.onAutoCombatToggle = () => this.cycleAutoCombatMode();
+    this.#input.onMountToggle = () => {
+      if (this.#onlineSession) this.rejectOnlineLocalAction("Montaria");
+      else this.toggleMount();
+    };
+    this.#input.onAutoCombatToggle = () => {
+      if (this.#onlineSession) this.rejectOnlineLocalAction("C.C");
+      else this.cycleAutoCombatMode();
+    };
     this.#input.onEffectsToggle = () => this.toggleEffects();
-    this.#input.onSkill = (slot) => this.requestSkill(slot);
+    this.#input.onSkill = (slot) => {
+      if (this.#onlineSession) this.rejectOnlineLocalAction(`Skill ${slot}`);
+      else this.requestSkill(slot);
+    };
     this.#hud.onAutoCombatModeSelected = (mode) => this.setAutoCombatMode(mode);
     this.#hud.onAutoCombatSkillSlotsChanged = (slots) => this.setMacroSkillSlots(slots);
     this.#hud.onAutoCombatRecoveryThresholdChanged = (percentage) => {
@@ -251,11 +265,16 @@ export class GameApp {
     };
     this.#hud.onAutoCombatPositionModeSelected = (mode) => this.setAutoCombatPositionMode(mode);
     this.#hud.onChatSubmit = (message, channel) => {
-      // A camada de rede continua fora do escopo: o fluxo e a apresentação
-      // seguem o cliente, mas a mensagem é ecoada apenas no frontend local.
+      if (this.#onlineSession) {
+        this.rejectOnlineLocalAction(`Chat ${channel}: ${message.slice(0, 24)}`);
+        return;
+      }
       this.#hud.addChatMessage(this.#playerState.snapshot.name, message, channel);
     };
-    this.#hud.onCatalogSkillUse = (classicIndex) => this.requestCatalogSkill(classicIndex);
+    this.#hud.onCatalogSkillUse = (classicIndex) => {
+      if (this.#onlineSession) this.rejectOnlineLocalAction(`Skill #${classicIndex}`);
+      else this.requestCatalogSkill(classicIndex);
+    };
     this.#hud.bindPlayer(this.#playerState);
     this.#playerState.subscribe(this.playerEquipmentChanged);
     if (this.#onlineSession) {
@@ -463,6 +482,13 @@ export class GameApp {
     this.#renderer.setAnimationLoop(this.frame);
   }
 
+  private rejectOnlineLocalAction(action: string): void {
+    this.#hud.addLog(
+      `${action} aguardando packet autoritativo do TMSrv.`,
+      "system",
+    );
+  }
+
   private lockOnlineLocalControls(): void {
     for (const selector of [
       "#player-class-select",
@@ -516,32 +542,39 @@ export class GameApp {
       this.#hud.setSkillCooldown(skill.slot, this.#skills.remaining(skill.slot), this.#skills.ratio(skill.slot));
     }
     if (this.#player) {
-      const mouseForward = this.#input.dualButtonForward();
+      const mouseForward = this.#onlineSession ? false : this.#input.dualButtonForward();
       this.#cameraRig.rotate(this.#input.rotationAxis() * dt * 1.7);
       if (!this.#streamingPaused) {
-        this.updateHeldGroundDestination(dt, mouseForward);
-        const keyboard = this.#input.movement();
-        if (keyboard.x !== 0 || keyboard.y !== 0 || mouseForward) this.breakInvisibility();
-        const movement = new THREE.Vector2();
-        if (this.#playerState.snapshot.alive) {
-          const axes = this.#cameraRig.groundAxes();
-          if (mouseForward) {
-            // MMO chord: camera-forward steering while right-drag continues
-            // changing yaw. Convert scene X/Z axes back to logical WYD X/Y.
-            movement.set(axes.forward.x, -axes.forward.y);
-          } else {
-            const sceneDirection = axes.right
-              .multiplyScalar(keyboard.x)
-              .add(axes.forward.multiplyScalar(keyboard.y));
-            movement.set(sceneDirection.x, -sceneDirection.y);
+        if (this.#onlineSession) {
+          this.#player.update(dt, this.#zeroMovement);
+        } else {
+          this.updateHeldGroundDestination(dt, mouseForward);
+          const keyboard = this.#input.movement();
+          if (keyboard.x !== 0 || keyboard.y !== 0 || mouseForward) this.breakInvisibility();
+          const movement = new THREE.Vector2();
+          if (this.#playerState.snapshot.alive) {
+            const axes = this.#cameraRig.groundAxes();
+            if (mouseForward) {
+              // MMO chord: camera-forward steering while right-drag continues
+              // changing yaw. Convert scene X/Z axes back to logical WYD X/Y.
+              movement.set(axes.forward.x, -axes.forward.y);
+            } else {
+              const sceneDirection = axes.right
+                .multiplyScalar(keyboard.x)
+                .add(axes.forward.multiplyScalar(keyboard.y));
+              movement.set(sceneDirection.x, -sceneDirection.y);
+            }
           }
+          this.#player.update(dt, movement);
         }
-        this.#player.update(dt, movement);
         this.#world?.update(dt, this.#player.position);
       }
-      this.bindSpawnGameplay();
-      this.updateCombat(dt, mouseForward);
-      this.updateBeastMasterSummons(dt);
+      this.#networkActors?.update(dt, this.#player.position);
+      if (!this.#onlineSession) {
+        this.bindSpawnGameplay();
+        this.updateCombat(dt, mouseForward);
+        this.updateBeastMasterSummons(dt);
+      }
       this.#cameraRig.update(this.#player.object.position, dt);
       this.activateField(this.#player.position);
       const coordinates = document.querySelector<HTMLElement>("#coordinates");

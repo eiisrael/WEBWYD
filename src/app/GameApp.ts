@@ -772,7 +772,16 @@ export class GameApp {
 
     try {
       if (pendingSkill) {
-        this.sendOnlineSkillPacket(pendingSkill, [actor.id], actor);
+        const targetIds = pendingSkill.classicTargetType === 1
+          ? [actor.id]
+          : this.collectOnlineAreaTargets(pendingSkill, actor);
+        if (targetIds.length === 0) {
+          this.#hud.addLog(`${pendingSkill.name} não encontrou alvos clássicos válidos.`, "system");
+          this.#onlinePendingSkill = null;
+          this.#onlinePendingAttack = false;
+          return;
+        }
+        this.sendOnlineSkillPacket(pendingSkill, targetIds, actor);
         this.#onlinePendingSkill = null;
         this.#onlinePendingAttack = false;
         return;
@@ -827,7 +836,15 @@ export class GameApp {
       return;
     }
 
-    if (skill.classicTargetType === 1 && skill.target === "enemy") {
+    if (
+      skill.target === "enemy"
+      && (
+        skill.classicTargetType === 1
+        || skill.classicTargetType === 3
+        || skill.classicTargetType === 4
+        || skill.classicTargetType === 6
+      )
+    ) {
       const targetId = this.#onlineTargetId;
       const actor = targetId === null ? null : session.fieldReplica.snapshot(targetId);
       if (!actor || actor.score.hp <= 0) {
@@ -874,9 +891,57 @@ export class GameApp {
     }
 
     this.#hud.addLog(
-      `${skill.name} usa TargetType ${skill.classicTargetType}; seleção multi-alvo clássica ainda não portada.`,
+      skill.classicTargetType === 5
+        ? `${skill.name} usa TargetType 5; cone clássico ainda aguarda ângulo/mastery auditados.`
+        : `${skill.name} usa TargetType ${skill.classicTargetType}; contrato online ainda não portado.`,
       "system",
     );
+  }
+
+  private collectOnlineAreaTargets(
+    skill: ClassSkill,
+    preferred: ClassicFieldActor,
+  ): number[] {
+    const session = this.#onlineSession;
+    const field = session?.snapshot.field;
+    const world = this.#world;
+    if (!session || !field || !world || !this.#player) return [];
+
+    const radius = skill.classicTargetType === 3
+      ? 1
+      : (skill.classicTargetType === 4 ? 2 : (skill.classicTargetType === 6 ? 3 : 0));
+    if (radius <= 0) return [];
+
+    const center = { x: preferred.posX + 0.5, y: preferred.posY + 0.5 };
+    const candidates = session.fieldReplica.snapshots()
+      .filter((actor) => actor.id !== field.clientId && actor.score.hp > 0)
+      .filter((actor) => {
+        const position = { x: actor.posX + 0.5, y: actor.posY + 0.5 };
+        if (Math.hypot(position.x - center.x, position.y - center.y) > radius) return false;
+        if (!world.navigation.canTravelDirectly(center, position)) return false;
+
+        if (skill.aggressive === 1) {
+          if (world.isInTown(position)) return false;
+          if (session.isPartyMember(actor.id)) return false;
+          if (actor.id > 0 && actor.id < 1000) {
+            if (!world.isInPkZone(position)) return false;
+            if (!session.snapshot.pkMode) return false;
+          }
+        }
+        return true;
+      })
+      .sort((left, right) => {
+        if (left.id === preferred.id) return -1;
+        if (right.id === preferred.id) return 1;
+        const leftDistance = Math.hypot(left.posX + 0.5 - center.x, left.posY + 0.5 - center.y);
+        const rightDistance = Math.hypot(right.posX + 0.5 - center.x, right.posY + 0.5 - center.y);
+        return leftDistance - rightDistance || left.id - right.id;
+      });
+
+    const classicCap = skill.classicTargetType === 3 ? 8 : 13;
+    return candidates
+      .slice(0, Math.min(classicCap, Math.max(1, skill.maxTargets), 13))
+      .map((actor) => actor.id);
   }
 
   private sendOnlineSkillPacket(

@@ -8,8 +8,20 @@ import {
   type ClassicCharacterLoginConfirmation,
   type ClassicCharacterSummary,
 } from "../classic/Messages";
+import {
+  parseHpDamagePacket,
+  parseHpModePacket,
+  parseHpMpPacket,
+  parseUpdateEtcPacket,
+  parseUpdateScorePacket,
+  type ClassicHpDamageMessage,
+  type ClassicHpModeMessage,
+  type ClassicHpMpMessage,
+  type ClassicUpdateEtcMessage,
+  type ClassicUpdateScoreMessage,
+} from "../classic/FieldMessages";
 import { ClassicOpcode } from "../classic/Protocol";
-import type { ClassicMobCore } from "../classic/Structures";
+import type { ClassicMobCore, ClassicScore } from "../classic/Structures";
 import { ClassicPacketDispatcher } from "../classic/ClassicPacketDispatcher";
 import { ClassicFieldReplica } from "../classic/ClassicFieldReplica";
 import type {
@@ -27,8 +39,39 @@ export type ClassicSessionState =
   | "disconnected"
   | "error";
 
+export interface ClassicPlayerRuntime {
+  readonly score: ClassicScore;
+  readonly currentHp: number;
+  readonly currentMp: number;
+  readonly requestedHp: number;
+  readonly requestedMp: number;
+  readonly critical: number;
+  readonly saveMana: number;
+  readonly affects: readonly number[];
+  readonly guild: number;
+  readonly guildLevel: number;
+  readonly resist: readonly number[];
+  readonly regenHp: number;
+  readonly regenMp: number;
+  readonly magic: number;
+  readonly special: readonly number[];
+  readonly hold: number;
+  readonly experience: bigint;
+  readonly learnedSkill: number;
+  readonly secondaryLearnedSkill: number;
+  readonly scoreBonus: number;
+  readonly specialBonus: number;
+  readonly skillBonus: number;
+  readonly coin: number;
+  readonly donate: number;
+  readonly honor: number;
+  readonly mode: number | null;
+  readonly lastDamage: number | null;
+}
+
 export interface ClassicFieldSession {
   readonly mob: ClassicMobCore;
+  runtime: ClassicPlayerRuntime;
   readonly characterName: string;
   readonly characterClass: number;
   readonly clientId: number;
@@ -53,6 +96,7 @@ export interface ClassicSessionEventMap {
   readonly message: string;
   readonly error: Error;
   readonly unknownPacket: number;
+  readonly runtime: ClassicPlayerRuntime;
 }
 
 type SessionListener<K extends keyof ClassicSessionEventMap> = (
@@ -90,6 +134,21 @@ export class ClassicSession {
       this.#dispatcher.on(ClassicOpcode.messagePanel, (packet) => {
         this.emit("message", parseMessagePanel(packet).message);
       }),
+      this.#dispatcher.on(ClassicOpcode.setHpMp, (packet) => {
+        this.applyHpMp(parseHpMpPacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.setHpDam, (packet) => {
+        this.applyLocalDamage(parseHpDamagePacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.setHpMode, (packet) => {
+        this.applyHpMode(parseHpModePacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.updateScore, (packet) => {
+        this.applyUpdateScore(parseUpdateScorePacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.updateEtc, (packet) => {
+        this.applyUpdateEtc(parseUpdateEtcPacket(packet));
+      }),
       this.#dispatcher.onUnknown((_packet, header) => {
         this.emit("unknownPacket", header.type);
       }),
@@ -103,9 +162,7 @@ export class ClassicSession {
       characters: this.#characters.map((character) => ({ ...character })),
       cargoCoin: this.#cargoCoin,
       selectedSlot: this.#selectedSlot,
-      field: this.#field
-        ? { ...this.#field, shortSkills: this.#field.shortSkills.slice() }
-        : null,
+      field: this.#field ? cloneFieldSession(this.#field) : null,
     };
   }
 
@@ -217,6 +274,7 @@ export class ClassicSession {
     }
     this.#field = {
       mob: confirmation.mob,
+      runtime: createInitialRuntime(confirmation.mob),
       characterName: confirmation.characterName,
       characterClass: confirmation.characterClass,
       clientId: confirmation.clientId,
@@ -230,6 +288,115 @@ export class ClassicSession {
     this.#secretCode?.fill(0);
     this.#secretCode = null;
     this.setState("field");
+  }
+
+  private applyHpMp(message: ClassicHpMpMessage): void {
+    const field = this.requireFieldForUpdate("MSG_SetHpMp");
+    field.runtime = {
+      ...field.runtime,
+      score: {
+        ...field.runtime.score,
+        hp: message.hp,
+        mp: message.mp,
+        special: [...field.runtime.score.special],
+      },
+      currentHp: message.hp,
+      currentMp: message.mp,
+      requestedHp: message.requestedHp,
+      requestedMp: message.requestedMp,
+    };
+    this.emitRuntime();
+  }
+
+  private applyLocalDamage(message: ClassicHpDamageMessage): void {
+    if (!this.#field || message.header.id !== this.#field.clientId) return;
+    this.#field.runtime = {
+      ...this.#field.runtime,
+      score: {
+        ...this.#field.runtime.score,
+        hp: message.hp,
+        special: [...this.#field.runtime.score.special],
+      },
+      currentHp: message.hp,
+      requestedHp: message.hp,
+      lastDamage: message.damage,
+    };
+    this.emitRuntime();
+  }
+
+  private applyHpMode(message: ClassicHpModeMessage): void {
+    const field = this.requireFieldForUpdate("MSG_SetHpMode");
+    field.runtime = {
+      ...field.runtime,
+      score: {
+        ...field.runtime.score,
+        hp: message.hp,
+        special: [...field.runtime.score.special],
+      },
+      currentHp: message.hp,
+      requestedHp: message.hp,
+      mode: message.mode,
+    };
+    this.emitRuntime();
+  }
+
+  private applyUpdateScore(message: ClassicUpdateScoreMessage): void {
+    const field = this.requireFieldForUpdate("MSG_UpdateScore");
+    field.runtime = {
+      ...field.runtime,
+      score: {
+        ...message.score,
+        hp: message.currentHp,
+        mp: message.currentMp,
+        special: [...message.score.special],
+      },
+      currentHp: message.currentHp,
+      currentMp: message.currentMp,
+      requestedHp: message.currentHp,
+      requestedMp: message.currentMp,
+      critical: message.critical,
+      saveMana: message.saveMana,
+      affects: [...message.affects],
+      guild: message.guild,
+      guildLevel: message.guildLevel,
+      resist: [...message.resist],
+      regenHp: message.regenHp,
+      regenMp: message.regenMp,
+      magic: message.magic,
+      special: [...message.special],
+    };
+    this.emitRuntime();
+  }
+
+  private applyUpdateEtc(message: ClassicUpdateEtcMessage): void {
+    const field = this.requireFieldForUpdate("MSG_UpdateEtc");
+    field.runtime = {
+      ...field.runtime,
+      hold: message.hold,
+      experience: message.experience,
+      learnedSkill: message.learnedSkill,
+      secondaryLearnedSkill: message.secondaryLearnedSkill,
+      scoreBonus: message.scoreBonus,
+      specialBonus: message.specialBonus,
+      skillBonus: message.skillBonus,
+      magic: message.magic,
+      coin: message.coin,
+      donate: message.donate,
+      honor: message.honor,
+    };
+    this.emitRuntime();
+  }
+
+  private requireFieldForUpdate(packetName: string): ClassicFieldSession {
+    if (!this.#field || this.#state !== "field") {
+      throw new Error(`${packetName} recebido fora do Field`);
+    }
+    return this.#field;
+  }
+
+  private emitRuntime(): void {
+    if (!this.#field) return;
+    this.emit("runtime", cloneRuntime(this.#field.runtime));
   }
 
   private resetSessionData(): void {
@@ -270,6 +437,63 @@ export class ClassicSession {
   private assertAlive(): void {
     if (this.#disposed) throw new Error("ClassicSession já foi descartada");
   }
+}
+
+function createInitialRuntime(mob: ClassicMobCore): ClassicPlayerRuntime {
+  return {
+    score: cloneScore(mob.currentScore),
+    currentHp: mob.currentScore.hp,
+    currentMp: mob.currentScore.mp,
+    requestedHp: mob.currentScore.hp,
+    requestedMp: mob.currentScore.mp,
+    critical: 0,
+    saveMana: 0,
+    affects: [],
+    guild: mob.guild,
+    guildLevel: 0,
+    resist: [],
+    regenHp: 0,
+    regenMp: 0,
+    magic: 0,
+    special: [],
+    hold: 0,
+    experience: mob.experience,
+    learnedSkill: 0,
+    secondaryLearnedSkill: 0,
+    scoreBonus: 0,
+    specialBonus: 0,
+    skillBonus: 0,
+    coin: mob.coin,
+    donate: 0,
+    honor: 0,
+    mode: null,
+    lastDamage: null,
+  };
+}
+
+function cloneFieldSession(field: ClassicFieldSession): ClassicFieldSession {
+  return {
+    ...field,
+    runtime: cloneRuntime(field.runtime),
+    shortSkills: field.shortSkills.slice(),
+  };
+}
+
+function cloneRuntime(runtime: ClassicPlayerRuntime): ClassicPlayerRuntime {
+  return {
+    ...runtime,
+    score: cloneScore(runtime.score),
+    affects: [...runtime.affects],
+    resist: [...runtime.resist],
+    special: [...runtime.special],
+  };
+}
+
+function cloneScore(score: ClassicScore): ClassicScore {
+  return {
+    ...score,
+    special: [...score.special],
+  };
 }
 
 export function isConnectedTransportState(state: ClassicTransportState): boolean {

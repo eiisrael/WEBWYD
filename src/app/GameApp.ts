@@ -53,6 +53,8 @@ import { ClassicBeastMasterSkillEffects } from "../render/effects/ClassicBeastMa
 import { ClassicEtherealExplosionEffect } from "../render/effects/ClassicEtherealExplosionEffect";
 import { ClassicLevelUpEffects } from "../render/effects/ClassicLevelUpEffects";
 import { ClassicInventoryPreview } from "../render/inventory/ClassicInventoryPreview";
+import { ClassicNetworkActorLayer } from "../render/npcs/ClassicNetworkActorLayer";
+import type { ClassicFieldSession, ClassicPlayerRuntime, ClassicSession } from "../network/session/ClassicSession";
 import { configureClassicDdsTextureSupport } from "../render/textures/ClassicDdsTextureLoader";
 import {
   connectedFieldRegions,
@@ -86,6 +88,11 @@ interface PendingSkillEvent {
 
 type HeldGroundMode = "target" | "ground";
 
+export interface GameAppOptions {
+  /** Opt-in authoritative session. Omitted keeps the current offline sandbox. */
+  readonly session?: ClassicSession;
+}
+
 export class GameApp {
   readonly #scene = new THREE.Scene();
   readonly #camera = new THREE.PerspectiveCamera(45, 1, 0.966, 1200);
@@ -100,9 +107,10 @@ export class GameApp {
   readonly #input: GameInput;
   readonly #hud = new GameHud();
   readonly #telemetry = new RuntimeTelemetry();
-  readonly #playerState = new PlayerState("Huntress");
-  #skills = new ClassSkillSystem("huntress");
-  #activeClassKey: ClassicClassKey = "huntress";
+  readonly #onlineSession: ClassicSession | null;
+  readonly #playerState: PlayerState;
+  #skills: ClassSkillSystem;
+  #activeClassKey: ClassicClassKey;
   readonly #combatEffects = new HuntressCombatEffects();
   readonly #skillEffects: ClassicHuntressSkillEffects;
   readonly #foemaSkillEffects: ClassicFoemaSkillEffects;
@@ -138,10 +146,8 @@ export class GameApp {
   #macroOwnsTarget = false;
   #macroDecisionCooldown = 0;
   #macroSkillCursor = 0;
-  #macroSkillSlots = offensiveBarSkillSlots(this.#skills.skills);
-  readonly #macroSkillSlotsByClass = new Map<ClassicClassKey, number[]>([
-    ["huntress", [...this.#macroSkillSlots]],
-  ]);
+  #macroSkillSlots: number[];
+  readonly #macroSkillSlotsByClass = new Map<ClassicClassKey, number[]>();
   #classSwitchInFlight = false;
   #autoCombatRecoveryThreshold = 30;
   #autoCombatMountThreshold = 30;
@@ -162,9 +168,29 @@ export class GameApp {
   #equipmentVisualSignature = "";
   #summonGeneration = 0;
   readonly #beastMasterSummons = new Map<number, ClassicBeastMasterSummon[]>();
+  #networkActors: ClassicNetworkActorLayer | null = null;
+  readonly #onlineUnsubscribers: (() => void)[] = [];
   #disposed = false;
 
-  constructor(private readonly container: HTMLElement) {
+  constructor(
+    private readonly container: HTMLElement,
+    options: GameAppOptions = {},
+  ) {
+    this.#onlineSession = options.session ?? null;
+    const onlineField = this.#onlineSession?.snapshot.field ?? null;
+    const onlineClass = onlineField
+      ? CLASSIC_PLAYER_CLASSES.find((definition) => definition.classIndex === onlineField.characterClass)
+      : null;
+    this.#activeClassKey = onlineClass?.key ?? "huntress";
+    this.#skills = new ClassSkillSystem(this.#activeClassKey);
+    this.#macroSkillSlots = offensiveBarSkillSlots(this.#skills.skills);
+    this.#macroSkillSlotsByClass.set(this.#activeClassKey, [...this.#macroSkillSlots]);
+    this.#playerState = new PlayerState(
+      onlineField?.characterName ?? classicPlayerClass(this.#activeClassKey).name,
+      { authoritative: this.#onlineSession !== null },
+    );
+    if (onlineField) this.applyOnlinePlayerRuntime(onlineField, onlineField.runtime);
+
     const constrainedDevice = shouldUseReducedGpuProfile();
     this.#renderer = new THREE.WebGLRenderer({
       antialias: !constrainedDevice,
@@ -263,6 +289,9 @@ export class GameApp {
     this.#renderer.domElement.removeEventListener("webglcontextlost", this.webglContextLost);
     this.#renderer.domElement.removeEventListener("webglcontextrestored", this.webglContextRestored);
 
+    for (const unsubscribe of this.#onlineUnsubscribers.splice(0)) unsubscribe();
+    this.#networkActors?.dispose();
+    this.#networkActors = null;
     this.#input.dispose();
     this.#hud.dispose();
     this.clearBeastMasterSummons();
@@ -274,6 +303,30 @@ export class GameApp {
     this.#world = undefined;
     this.#renderer.dispose();
     this.#renderer.domElement.remove();
+  }
+
+  private applyOnlinePlayerRuntime(
+    field: ClassicFieldSession,
+    runtime: ClassicPlayerRuntime,
+  ): void {
+    const score = runtime.score;
+    this.#playerState.applyAuthoritative({
+      name: field.characterName,
+      level: score.level,
+      totalExperience: runtime.experience,
+      hp: runtime.currentHp,
+      maxHp: score.maxHp,
+      mp: runtime.currentMp,
+      maxMp: score.maxMp,
+      attack: score.damage,
+      defense: score.armorClass,
+      strength: score.strength,
+      intelligence: score.intelligence,
+      dexterity: score.dexterity,
+      constitution: score.constitution,
+      freeAttributePoints: runtime.scoreBonus,
+      coins: runtime.coin,
+    });
   }
 
   async start(): Promise<void> {

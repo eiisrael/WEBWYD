@@ -2,6 +2,7 @@ import { connect as connectTcp } from "node:net";
 import {
   ClassicCPSockEncoder,
   ClassicCPSockStreamDecoder,
+  ClassicServerClock,
 } from "../src/network/classic/CPSockCodec.ts";
 import {
   CLASSIC_INIT_CODE,
@@ -71,7 +72,8 @@ console.log(`WEBWYD gateway ouvindo em ws://localhost:${server.port}/wyd`);
 console.log(`Destino clássico: ${gameHost}:${gamePort}`);
 
 function createBridge(ws) {
-  const encoder = new ClassicCPSockEncoder();
+  const serverClock = new ClassicServerClock();
+  const encoder = new ClassicCPSockEncoder({ tickSource: () => serverClock.now() });
   const decoder = new ClassicCPSockStreamDecoder();
   const pending = [];
   let tcp = null;
@@ -95,6 +97,8 @@ function createBridge(ws) {
         if (closed) return;
         try {
           for (const packet of decoder.push(chunk)) {
+            const header = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+            serverClock.observe(header.getUint32(8, true));
             const type = packet[4] | (packet[5] << 8);
             if (type === ClassicOpcode.cnfAccountLogin && packet.byteLength >= 28) {
               encoder.setSendQueue(packet.subarray(12, 28));
@@ -136,6 +140,7 @@ function createBridge(ws) {
       pending.length = 0;
       decoder.clear();
       encoder.clearSendQueue();
+      serverClock.clear();
       tcp?.destroy();
       tcp = null;
     },

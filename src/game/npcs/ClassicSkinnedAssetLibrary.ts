@@ -103,7 +103,7 @@ export class ClassicSkinnedAssetLibrary {
         texture: part[5],
         alpha: part[6],
       })),
-      actions: ["STAND01", "WALK", "ATTACK1", "STRIKE", "DIE", "DEAD"],
+      actions: ["STAND01", "WALK", "RUN", "ATTACK1", "STRIKE", "DIE", "DEAD"],
       initialAction: "STAND01",
       actionVariant: animationVariant(template),
     });

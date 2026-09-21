@@ -15,12 +15,15 @@ import {
   parseHpDamagePacket,
   parseHpModePacket,
   parseHpMpPacket,
+  parseUpdateAffectPacket,
   parseUpdateEtcPacket,
   parseUpdateScorePacket,
+  type ClassicAffect,
   type ClassicAttackMessage,
   type ClassicHpDamageMessage,
   type ClassicHpModeMessage,
   type ClassicHpMpMessage,
+  type ClassicUpdateAffectMessage,
   type ClassicUpdateEtcMessage,
   type ClassicUpdateScoreMessage,
 } from "../classic/FieldMessages";
@@ -52,6 +55,7 @@ export interface ClassicPlayerRuntime {
   readonly critical: number;
   readonly saveMana: number;
   readonly affects: readonly number[];
+  readonly activeAffects: readonly ClassicAffect[];
   readonly guild: number;
   readonly guildLevel: number;
   readonly resist: readonly number[];
@@ -111,6 +115,18 @@ export interface ClassicBasicAttackIntent {
   readonly targetX: number;
   readonly targetY: number;
   readonly progress?: number;
+}
+
+export interface ClassicSkillAttackIntent {
+  readonly skillIndex: number;
+  readonly maxTargets: number;
+  readonly targetIds: readonly number[];
+  readonly posX: number;
+  readonly posY: number;
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly progress?: number;
+  readonly skillParm?: number;
 }
 
 export interface ClassicSessionEventMap {
@@ -176,6 +192,9 @@ export class ClassicSession {
       }),
       this.#dispatcher.on(ClassicOpcode.updateScore, (packet) => {
         this.applyUpdateScore(parseUpdateScorePacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.updateAffect, (packet) => {
+        this.applyUpdateAffect(parseUpdateAffectPacket(packet));
       }),
       this.#dispatcher.on(ClassicOpcode.updateEtc, (packet) => {
         this.applyUpdateEtc(parseUpdateEtcPacket(packet));
@@ -278,6 +297,47 @@ export class ClassicSession {
       skillIndex: 0,
       requestedMp: 0,
       damages: [{ targetId, damage: -2 }],
+    }, { id: field.clientId }));
+  }
+
+  sendSkillAttackIntent(intent: ClassicSkillAttackIntent): void {
+    this.assertAlive();
+    const field = this.#field;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`Skill inválida no estado ${this.#state}`);
+    }
+
+    const skillIndex = Math.trunc(intent.skillIndex);
+    if (skillIndex < 0 || skillIndex > 255) {
+      throw new RangeError(`Índice de skill inválido: ${skillIndex}`);
+    }
+
+    const maxTargets = Math.max(1, Math.min(13, Math.trunc(intent.maxTargets)));
+    const opcode = maxTargets === 1
+      ? ClassicOpcode.attackOne
+      : (maxTargets === 2 ? ClassicOpcode.attackTwo : ClassicOpcode.attackMulti);
+    const packetCapacity = maxTargets === 1 ? 1 : (maxTargets === 2 ? 2 : 13);
+    const targetIds = [...new Set(intent.targetIds.map((id) => Math.trunc(id)))]
+      .filter((id) => id > 0)
+      .slice(0, Math.min(maxTargets, packetCapacity));
+    if (targetIds.length === 0) throw new RangeError("Skill clássica sem alvo válido");
+
+    this.transport.send(createClientAttackPacket({
+      opcode,
+      posX: Math.trunc(intent.posX),
+      posY: Math.trunc(intent.posY),
+      targetX: Math.trunc(intent.targetX),
+      targetY: Math.trunc(intent.targetY),
+      attackerId: field.clientId,
+      progress: Math.trunc(intent.progress ?? 0),
+      motion: 0xff,
+      skillParm: Math.trunc(intent.skillParm ?? 0) & 0xff,
+      flagLocal: 0,
+      currentHp: 0,
+      currentMp: -1,
+      skillIndex,
+      requestedMp: 0,
+      damages: targetIds.map((targetId) => ({ targetId, damage: -1 })),
     }, { id: field.clientId }));
   }
 
@@ -474,6 +534,16 @@ export class ClassicSession {
     this.emitRuntime();
   }
 
+  private applyUpdateAffect(message: ClassicUpdateAffectMessage): void {
+    const field = this.requireFieldForUpdate("MSG_UpdateAffect");
+    if (message.header.id !== 0 && message.header.id !== field.clientId) return;
+    field.runtime = {
+      ...field.runtime,
+      activeAffects: message.affects.map((affect) => ({ ...affect })),
+    };
+    this.emitRuntime();
+  }
+
   private applyUpdateEtc(message: ClassicUpdateEtcMessage): void {
     const field = this.requireFieldForUpdate("MSG_UpdateEtc");
     field.runtime = {
@@ -555,6 +625,7 @@ function createInitialRuntime(mob: ClassicMobCore): ClassicPlayerRuntime {
     critical: 0,
     saveMana: 0,
     affects: [],
+    activeAffects: [],
     guild: mob.guild,
     guildLevel: 0,
     resist: [],
@@ -590,6 +661,7 @@ function cloneRuntime(runtime: ClassicPlayerRuntime): ClassicPlayerRuntime {
     ...runtime,
     score: cloneScore(runtime.score),
     affects: [...runtime.affects],
+    activeAffects: runtime.activeAffects.map((affect) => ({ ...affect })),
     resist: [...runtime.resist],
     special: [...runtime.special],
   };

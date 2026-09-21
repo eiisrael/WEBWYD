@@ -59,6 +59,7 @@ export const CLASSIC_STRUCTURE_SIZES = {
   item: 8,
   selectedCharacters: 840,
   mob: 816,
+  affect: 8,
 } as const;
 
 export const CLASSIC_PACKET_SIZES = {
@@ -74,6 +75,7 @@ export const CLASSIC_PACKET_SIZES = {
   setHpMode: 20,
   motion: 20,
   updateEquip: 60,
+  updateAffect: 268,
   attackOne: 68,
   attackTwo: 76,
   attackMulti: 164,

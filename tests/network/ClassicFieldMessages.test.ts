@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { parseCreateMobPacket } from "../../src/network/classic/Messages";
-import { createClientAttackPacket } from "../../src/network/classic/FieldMessages";
+import {
+  createClientAttackPacket,
+  parseUpdateAffectPacket,
+} from "../../src/network/classic/FieldMessages";
 import { PacketWriter } from "../../src/network/classic/PacketIO";
 import {
   CLASSIC_PACKET_SIZES,
@@ -131,5 +134,41 @@ describe("client MSG_Attack", () => {
         { targetId: 9, damage: -2 },
       ],
     })).toThrow(/máximo 1/i);
+  });
+});
+
+
+describe("MSG_UpdateAffect", () => {
+  it("preserva os 32 STRUCT_AFFECT Win32 de 8 bytes", () => {
+    const writer = new PacketWriter(CLASSIC_PACKET_SIZES.updateAffect);
+    writer.header({
+      size: CLASSIC_PACKET_SIZES.updateAffect,
+      keyword: 0,
+      checksum: 0,
+      type: ClassicOpcode.updateAffect,
+      id: 777,
+      tick: 4321,
+    });
+    for (let index = 0; index < 32; index++) {
+      writer.u8(index === 0 ? 14 : 0);
+      writer.u8(index === 0 ? 10 : 0);
+      writer.u16(index === 0 ? 7 : 0);
+      writer.u32(index === 0 ? 180_000 : 0);
+    }
+
+    const parsed = parseUpdateAffectPacket(writer.finish());
+    expect(parsed.header).toMatchObject({
+      type: ClassicOpcode.updateAffect,
+      id: 777,
+      tick: 4321,
+    });
+    expect(parsed.affects).toHaveLength(32);
+    expect(parsed.affects[0]).toEqual({
+      type: 14,
+      value: 10,
+      level: 7,
+      time: 180_000,
+    });
+    expect(parsed.affects[31]).toEqual({ type: 0, value: 0, level: 0, time: 0 });
   });
 });

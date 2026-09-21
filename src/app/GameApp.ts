@@ -300,6 +300,21 @@ export class GameApp {
         this.#onlineSession.on("message", (message) => {
           this.#hud.addLog(message, "system");
         }),
+        this.#onlineSession.on("partyInvite", (invite) => {
+          if (!invite) return;
+          this.#hud.addLog(
+            `PARTY · convite de ${invite.leader.name} [${invite.leader.id}] recebido.`,
+            "system",
+          );
+        }),
+        this.#onlineSession.on("party", (members) => {
+          this.#hud.addLog(
+            members.length > 0
+              ? `PARTY · ${members.length} membro(s) sincronizados pelo TMSrv.`
+              : "PARTY · grupo encerrado.",
+            "system",
+          );
+        }),
         this.#onlineSession.on("error", (error) => {
           this.#hud.addLog(`REDE · ${error.message}`, "system");
         }),
@@ -827,13 +842,30 @@ export class GameApp {
     }
 
     if (skill.target === "self" && skill.classicTargetType === 0) {
-      // BASE759 has a party-expansion special case for #29/#44. Until party
-      // membership is replicated, sending #44 as a solo-only packet could
-      // silently omit party members, so keep that contract closed.
       if (skill.classicIndex === 29 || skill.classicIndex === 44) {
-        this.#hud.addLog(
-          `${skill.name} aguarda replicação clássica de party para uso online.`,
-          "system",
+        const candidates = session.party.length > 0
+          ? session.party.map((member) => member.id)
+          : [field.clientId];
+        const origin = this.#player.position;
+        const targets = candidates
+          .map((id) => {
+            if (id === field.clientId) return { id, distance: 0 };
+            const actor = session.fieldReplica.snapshot(id);
+            if (!actor || actor.score.hp <= 0) return null;
+            const distance = Math.hypot(
+              actor.posX + 0.5 - origin.x,
+              actor.posY + 0.5 - origin.y,
+            );
+            return distance < Math.max(1, skill.range) ? { id, distance } : null;
+          })
+          .filter((entry): entry is { id: number; distance: number } => entry !== null)
+          .sort((left, right) => left.distance - right.distance)
+          .slice(0, Math.min(13, Math.max(1, skill.maxTargets)))
+          .map((entry) => entry.id);
+        this.sendOnlineSkillPacket(
+          skill,
+          targets.length > 0 ? targets : [field.clientId],
+          null,
         );
         return;
       }

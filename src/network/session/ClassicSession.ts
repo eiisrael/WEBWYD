@@ -415,6 +415,12 @@ export class ClassicSession {
     this.emit("pkMode", next);
   }
 
+  declinePartyInvite(): void {
+    if (!this.#partyInvite) return;
+    this.#partyInvite = null;
+    this.emit("partyInvite", null);
+  }
+
   acceptPartyInvite(): void {
     this.assertAlive();
     const field = this.#field;

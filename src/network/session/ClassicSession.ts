@@ -15,12 +15,15 @@ import {
   parseHpDamagePacket,
   parseHpModePacket,
   parseHpMpPacket,
+  parseUpdateAffectPacket,
   parseUpdateEtcPacket,
   parseUpdateScorePacket,
+  type ClassicAffect,
   type ClassicAttackMessage,
   type ClassicHpDamageMessage,
   type ClassicHpModeMessage,
   type ClassicHpMpMessage,
+  type ClassicUpdateAffectMessage,
   type ClassicUpdateEtcMessage,
   type ClassicUpdateScoreMessage,
 } from "../classic/FieldMessages";
@@ -52,6 +55,7 @@ export interface ClassicPlayerRuntime {
   readonly critical: number;
   readonly saveMana: number;
   readonly affects: readonly number[];
+  readonly activeAffects: readonly ClassicAffect[];
   readonly guild: number;
   readonly guildLevel: number;
   readonly resist: readonly number[];
@@ -188,6 +192,9 @@ export class ClassicSession {
       }),
       this.#dispatcher.on(ClassicOpcode.updateScore, (packet) => {
         this.applyUpdateScore(parseUpdateScorePacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.updateAffect, (packet) => {
+        this.applyUpdateAffect(parseUpdateAffectPacket(packet));
       }),
       this.#dispatcher.on(ClassicOpcode.updateEtc, (packet) => {
         this.applyUpdateEtc(parseUpdateEtcPacket(packet));
@@ -527,6 +534,16 @@ export class ClassicSession {
     this.emitRuntime();
   }
 
+  private applyUpdateAffect(message: ClassicUpdateAffectMessage): void {
+    const field = this.requireFieldForUpdate("MSG_UpdateAffect");
+    if (message.header.id !== 0 && message.header.id !== field.clientId) return;
+    field.runtime = {
+      ...field.runtime,
+      activeAffects: message.affects.map((affect) => ({ ...affect })),
+    };
+    this.emitRuntime();
+  }
+
   private applyUpdateEtc(message: ClassicUpdateEtcMessage): void {
     const field = this.requireFieldForUpdate("MSG_UpdateEtc");
     field.runtime = {
@@ -608,6 +625,7 @@ function createInitialRuntime(mob: ClassicMobCore): ClassicPlayerRuntime {
     critical: 0,
     saveMana: 0,
     affects: [],
+    activeAffects: [],
     guild: mob.guild,
     guildLevel: 0,
     resist: [],
@@ -643,6 +661,7 @@ function cloneRuntime(runtime: ClassicPlayerRuntime): ClassicPlayerRuntime {
     ...runtime,
     score: cloneScore(runtime.score),
     affects: [...runtime.affects],
+    activeAffects: runtime.activeAffects.map((affect) => ({ ...affect })),
     resist: [...runtime.resist],
     special: [...runtime.special],
   };

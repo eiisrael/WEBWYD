@@ -1,6 +1,6 @@
 # Protocolo de rede WEBWYD
 
-Status: **P0 iniciado em 20/09/2026**.
+Status: **P0 estrutural implementado; P1 de Field em andamento em 20/09/2026**.
 
 ## Objetivo
 
@@ -78,18 +78,22 @@ O `MSG_AccountLogin` conserva:
 - eventos de conexão/packet/erro/fechamento;
 - nenhuma dependência de gameplay.
 
-## O que ainda não está implementado
+## O que ainda não está implementado/homologado
 
-- gateway TCP real;
-- framing/criptografia `CPSock`;
-- fila `SendQueue/RecvQueue`;
-- handshake `INIT_CODE`;
-- state machine de login;
-- reconexão;
-- timeout/heartbeat;
-- dispatch de opcodes;
-- integração com `GameApp`;
-- autoridade de movimento/combat/inventory.
+Já existem gateway TCP, codec `CPSock`, `INIT_CODE`, dispatcher, sessão,
+login/seleção, integração opt-in com `GameApp`, runtime autoritativo básico,
+atores de NPC/monstro do servidor e envio de `MSG_Action` por clique.
+
+Ainda estão abertos:
+
+- homologação ponta a ponta contra TMSrv/DBSrv reais;
+- reconexão e timeout/heartbeat completos;
+- renderização de **jogadores remotos** via `TMHuman::SetPacketEquipItem/SetRace/CheckWeapon`;
+- inventário/equipamentos autoritativos completos no HUD;
+- chat/whisper real;
+- ataque/skills enviados pelo navegador e reconciliação de combate;
+- drops/itens/lojas/party/guild/trade/quests;
+- persistência e demais fluxos MMORPG.
 
 ## Estado do P0
 
@@ -129,6 +133,22 @@ offline enquanto a rede não estiver homologada.
 Nenhuma regra autoritativa deve migrar do TMSrv para o navegador apenas por
 conveniência. O frontend pode prever e apresentar; o servidor decide.
 
+
+## Portas auditadas da BASE759
+
+A origem do servidor declara em
+`BASE759/SOURCERS/Source do Servidor/Code/Basedef.h`:
+
+```text
+GAME_PORT = 7556  # cliente -> TMSrv
+DB_PORT   = 7514  # TMSrv -> DBSrv
+ADMIN_PORT = 3695
+```
+
+`Server.cpp` confirma que o TMSrv chama
+`ListenSocket.StartListen(..., GAME_PORT, ...)` e conecta ao DBSrv em
+`7514`. Portanto `WYD_TCP_PORT=7556` no gateway é o padrão desta BASE759,
+não um valor provisório.
 
 ## Gateway executável
 
@@ -206,3 +226,65 @@ A parte até `Carry[64]` é decodificada normalmente. Os 36 bytes finais
 permanecem como `opaqueTail` porque os `Basedef.h` de cliente e servidor
 desta BASE759 atribuem semânticas diferentes a essa cauda. Ela só será tipada
 quando a divergência for resolvida com evidência adicional.
+
+
+## Executando o modo online opt-in
+
+O modo offline continua sendo o boot padrão.
+
+Com TMSrv/DBSrv ativos, inicie o gateway:
+
+```bash
+WYD_TCP_HOST=127.0.0.1 \
+WYD_TCP_PORT=7556 \
+WYD_GATEWAY_ORIGINS=http://localhost:5173 \
+bun run gateway
+```
+
+Em outro terminal:
+
+```bash
+bun run dev
+```
+
+Abra:
+
+```text
+http://localhost:5173/?mode=online
+```
+
+Para apontar o navegador para outro gateway:
+
+```text
+http://localhost:5173/?mode=online&gateway=ws://HOST:8787/wyd
+```
+
+O fluxo atual é:
+
+```text
+login
+ -> MSG_CNFAccountLogin
+ -> seleção dos 4 slots
+ -> MSG_CharacterLogin
+ -> MSG_CNFCharacterLogin
+ -> GameApp autoritativo
+ -> CreateMob/Action/Attack/HP/MP/Score
+```
+
+No Field online:
+
+- `PlayerState` não cria poções/equipamentos/recompensas mock;
+- HP/MP/nível/EXP/atributos/moedas vêm da sessão/TMSrv;
+- spawns locais ficam desligados;
+- NPCs/monstros com template auditado usam os assets clássicos reais;
+- IDs de jogadores `1..999` ainda não recebem visual remoto improvisado;
+- clique no terreno calcula uma rota clássica de até 12 passos, envia
+  `MSG_Action` com `Speed = AttackRun & 0xF` e usa somente predição visual;
+- um `Action` autoritativo do próprio `ClientID` reconcilia a posição;
+- WASD, GM, C.C, skills, montaria e chat autoritativo continuam bloqueados até
+  os respectivos packets serem portados.
+
+O navegador não tem acesso ao MAC físico. Para preencher o campo legado do
+login, o WEBWYD gera um identificador localmente administrado
+`02:xx:xx:xx:xx:xx`, persistido apenas para compatibilidade de sessão. Ele
+não representa o endereço físico da placa de rede.

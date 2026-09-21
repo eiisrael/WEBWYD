@@ -35,6 +35,9 @@ export const ClassicOpcode = {
   updateEquip: 0x36b,
   action: 0x36c,
   useItem: 0x373,
+  partyAdd: 0x37d,
+  partyRemove: 0x37e,
+  partyRequest: 0x37f,
   trade: 0x383,
   closeTrade: 0x384,
   withdraw: 0x387,
@@ -44,6 +47,7 @@ export const ClassicOpcode = {
   attackTwo: 0x39e,
   ping: 0x3a0,
   combineItem: 0x3a6,
+  partyConfirm2: 0x3ab,
   delayStart: 0x3ae,
   updateAffect: 0x3b9,
   combineItemTiny: 0x3c0,
@@ -82,6 +86,11 @@ export const CLASSIC_PACKET_SIZES = {
   updateScore: 152,
   updateEtc: 52,
   action: 52,
+  setPkMode: 16,
+  partyRequest: 44,
+  partyAdd: 40,
+  partyRemove: 16,
+  partyConfirm2: 32,
   /**
    * O layout C++ possui 2 bytes de padding entre Force (short) e IP[4].
    * sizeof(MSG_AccountLogin) = 116 no ABI Win32 usado pela base.

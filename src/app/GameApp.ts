@@ -315,6 +315,14 @@ export class GameApp {
             "system",
           );
         }),
+        this.#onlineSession.on("shop", (shop) => {
+          if (!shop) return;
+          const itemCount = shop.items.filter((item) => item.index > 0).length;
+          this.#hud.addLog(
+            `LOJA · tipo ${shop.shopType}, ${itemCount} item(ns), taxa ${shop.tax}.`,
+            "system",
+          );
+        }),
         this.#onlineSession.on("error", (error) => {
           this.#hud.addLog(`REDE · ${error.message}`, "system");
         }),
@@ -678,6 +686,20 @@ export class GameApp {
     this.#raycaster.setFromCamera(pointer, this.#camera);
     const actor = this.onlineActorFromRaycast(field.clientId);
     if (actor) {
+      const npcRole = actor.score.reserved & 0x0f;
+      if (actor.id >= 1000 && (npcRole === 1 || npcRole === 3)) {
+        this.clearOnlineTarget();
+        try {
+          session.requestShop(actor.id);
+          this.#hud.addLog(`LOJA · solicitando itens de ${actor.name} [${actor.id}]…`, "system");
+        } catch (error) {
+          this.#hud.addLog(
+            error instanceof Error ? error.message : "Falha ao solicitar loja do NPC.",
+            "system",
+          );
+        }
+        return;
+      }
       this.selectOnlineTarget(actor);
       return;
     }

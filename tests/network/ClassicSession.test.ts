@@ -403,4 +403,43 @@ describe("ClassicSession", () => {
     });
     expect([...action.route.slice(0, 3)]).toEqual([0x36, 0x36, 0]);
   });
+
+  it("envia ataque físico básico para o TMSrv sem calcular dano no navegador", () => {
+    const transport = new FakeTransport();
+    const session = new ClassicSession(transport);
+
+    expect(() => session.sendBasicAttackIntent({
+      targetId: 1500,
+      posX: 2100,
+      posY: 2101,
+      targetX: 2102,
+      targetY: 2101,
+    })).toThrow(/estado/i);
+
+    session.login("conta", "senha", "00:11:22:33:44:55");
+    transport.open();
+    transport.receive(accountConfirmation());
+    session.selectCharacter(0);
+    transport.receive(characterConfirmation());
+
+    session.sendBasicAttackIntent({
+      targetId: 1500,
+      posX: 2100,
+      posY: 2101,
+      targetX: 2102,
+      targetY: 2101,
+    });
+
+    expect(transport.sent).toHaveLength(3);
+    const packet = transport.sent[2]!;
+    const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+    expect(packet).toHaveLength(CLASSIC_PACKET_SIZES.attackOne);
+    expect(view.getUint16(4, true)).toBe(ClassicOpcode.attackOne);
+    expect(view.getUint16(6, true)).toBe(777);
+    expect(view.getUint16(42, true)).toBe(777);
+    expect(view.getInt16(56, true)).toBe(0);
+    expect(view.getInt32(60, true)).toBe(1500);
+    expect(view.getInt32(64, true)).toBe(-2);
+  });
+
 });

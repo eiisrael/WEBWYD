@@ -10,6 +10,7 @@ import {
   type ClassicCharacterSummary,
 } from "../classic/Messages";
 import {
+  createClientAttackPacket,
   parseHpDamagePacket,
   parseHpModePacket,
   parseHpMpPacket,
@@ -99,6 +100,15 @@ export interface ClassicMoveIntent {
   readonly targetY: number;
   readonly route: ArrayLike<number>;
   readonly speed: number;
+}
+
+export interface ClassicBasicAttackIntent {
+  readonly targetId: number;
+  readonly posX: number;
+  readonly posY: number;
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly progress?: number;
 }
 
 export interface ClassicSessionEventMap {
@@ -226,6 +236,37 @@ export class ClassicSession {
       route: intent.route,
       targetX: Math.trunc(intent.targetX),
       targetY: Math.trunc(intent.targetY),
+    }, { id: field.clientId }));
+  }
+
+  sendBasicAttackIntent(intent: ClassicBasicAttackIntent): void {
+    this.assertAlive();
+    const field = this.#field;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`Ataque inválido no estado ${this.#state}`);
+    }
+
+    const targetId = Math.trunc(intent.targetId);
+    if (targetId <= 0 || targetId === field.clientId) {
+      throw new RangeError(`Alvo de ataque inválido: ${targetId}`);
+    }
+
+    this.transport.send(createClientAttackPacket({
+      opcode: ClassicOpcode.attackOne,
+      posX: Math.trunc(intent.posX),
+      posY: Math.trunc(intent.posY),
+      targetX: Math.trunc(intent.targetX),
+      targetY: Math.trunc(intent.targetY),
+      attackerId: field.clientId,
+      progress: Math.trunc(intent.progress ?? 0),
+      motion: 0xff,
+      skillParm: 0,
+      flagLocal: 0,
+      currentHp: 0,
+      currentMp: -1,
+      skillIndex: 0,
+      requestedMp: 0,
+      damages: [{ targetId, damage: -2 }],
     }, { id: field.clientId }));
   }
 

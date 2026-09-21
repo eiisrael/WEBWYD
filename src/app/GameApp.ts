@@ -810,7 +810,7 @@ export class GameApp {
       y: encoded.target.y + 0.5,
     });
     return true;
-  };
+  }
 
   private readonly groundClick = (pointer: THREE.Vector2): void => {
     if (!this.#world || !this.#player) {

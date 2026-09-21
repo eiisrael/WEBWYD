@@ -38,6 +38,11 @@ import {
   type ClassicPartyMember,
 } from "../classic/PartyMessages";
 import type { ClassicMobCore, ClassicScore } from "../classic/Structures";
+import {
+  createRequestShopListPacket,
+  parseShopListPacket,
+  type ClassicShopListMessage,
+} from "../classic/ShopMessages";
 import { ClassicPacketDispatcher } from "../classic/ClassicPacketDispatcher";
 import { ClassicFieldReplica } from "../classic/ClassicFieldReplica";
 import type {
@@ -109,6 +114,7 @@ export interface ClassicSessionSnapshot {
   readonly party: readonly ClassicPartyMember[];
   readonly partyInvite: ClassicPartyInvite | null;
   readonly pkMode: boolean;
+  readonly shop: ClassicShopListMessage | null;
 }
 
 export interface ClassicMoveIntent {
@@ -150,6 +156,7 @@ export interface ClassicSessionEventMap {
   readonly party: readonly ClassicPartyMember[];
   readonly partyInvite: ClassicPartyInvite | null;
   readonly pkMode: boolean;
+  readonly shop: ClassicShopListMessage | null;
 }
 
 type SessionListener<K extends keyof ClassicSessionEventMap> = (
@@ -173,6 +180,7 @@ export class ClassicSession {
   readonly #partyMembers = new Map<number, ClassicPartyMember>();
   #partyInvite: ClassicPartyInvite | null = null;
   #pkMode = false;
+  #shop: ClassicShopListMessage | null = null;
   #disposed = false;
 
   constructor(readonly transport: ClassicTransport) {
@@ -226,6 +234,10 @@ export class ClassicSession {
       this.#dispatcher.on(ClassicOpcode.partyRemove, (packet) => {
         this.applyPartyRemove(parsePartyRemovePacket(packet).memberId);
       }),
+      this.#dispatcher.on(ClassicOpcode.shopList, (packet) => {
+        this.#shop = parseShopListPacket(packet);
+        this.emit("shop", cloneShop(this.#shop));
+      }),
       this.#dispatcher.onUnknown((_packet, header) => {
         this.emit("unknownPacket", header.type);
       }),
@@ -243,6 +255,7 @@ export class ClassicSession {
       party: this.partyMembers(),
       partyInvite: this.#partyInvite ? clonePartyInvite(this.#partyInvite) : null,
       pkMode: this.#pkMode,
+      shop: this.#shop ? cloneShop(this.#shop) : null,
     };
   }
 
@@ -369,6 +382,24 @@ export class ClassicSession {
       requestedMp: 0,
       damages: targetIds.map((targetId) => ({ targetId, damage: -1 })),
     }, { id: field.clientId }));
+  }
+
+  requestShop(targetId: number): void {
+    this.assertAlive();
+    const field = this.#field;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`Loja inválida no estado ${this.#state}`);
+    }
+    const id = Math.trunc(targetId);
+    if (id < 1000) throw new RangeError(`NPC de loja inválido: ${id}`);
+    this.#shop = null;
+    this.transport.send(createRequestShopListPacket(id, 0, 0, { id: field.clientId }));
+  }
+
+  closeShop(): void {
+    if (!this.#shop) return;
+    this.#shop = null;
+    this.emit("shop", null);
   }
 
   setPkMode(enabled: boolean): void {
@@ -688,6 +719,7 @@ export class ClassicSession {
     this.#partyMembers.clear();
     this.#partyInvite = null;
     this.#pkMode = false;
+    this.#shop = null;
   }
 
   private zeroSensitiveBuffers(): void {
@@ -789,5 +821,18 @@ function clonePartyInvite(invite: ClassicPartyInvite): ClassicPartyInvite {
     header: { ...invite.header },
     leader: { ...invite.leader },
     targetId: invite.targetId,
+  };
+}
+
+
+function cloneShop(shop: ClassicShopListMessage): ClassicShopListMessage {
+  return {
+    header: { ...shop.header },
+    shopType: shop.shopType,
+    items: shop.items.map((item) => ({
+      index: item.index,
+      effects: item.effects.map((effect) => ({ ...effect })),
+    })),
+    tax: shop.tax,
   };
 }

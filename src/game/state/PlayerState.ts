@@ -66,6 +66,26 @@ export interface PlayerPrimaryAttributes {
 export interface OfflineProgressionOptions {
   /** Frontend-only mock until the authoritative server progression is available. */
   readonly attributePointsPerLevel?: number;
+  /** Online mode starts empty and only accepts server-authoritative progression. */
+  readonly authoritative?: boolean;
+}
+
+export interface AuthoritativePlayerState {
+  readonly name: string;
+  readonly level: number;
+  readonly totalExperience: number | bigint;
+  readonly hp: number;
+  readonly maxHp: number;
+  readonly mp: number;
+  readonly maxMp: number;
+  readonly attack: number;
+  readonly defense: number;
+  readonly strength: number;
+  readonly intelligence: number;
+  readonly dexterity: number;
+  readonly constitution: number;
+  readonly freeAttributePoints: number;
+  readonly coins: number;
 }
 
 export interface PlayerSnapshot {
@@ -171,16 +191,20 @@ export class PlayerState {
   #primaryAttributes: Record<PrimaryAttribute, number> = { str: 8, int: 8, dex: 12, con: 8 };
   #freeAttributePoints = 0;
   readonly #attributePointsPerLevel: number;
+  readonly #authoritative: boolean;
   #coins = 0;
   #name: string;
 
   constructor(name = "Aventureiro", options: OfflineProgressionOptions = {}) {
     this.#name = name;
+    this.#authoritative = options.authoritative ?? false;
     this.#attributePointsPerLevel = clampWholeNumber(
       options.attributePointsPerLevel ?? DEFAULT_OFFLINE_ATTRIBUTE_POINTS_PER_LEVEL,
       0,
       100,
     );
+    if (this.#authoritative) return;
+
     this.addItem({
       key: "pocao-cura-pequena",
       name: "Poção de Cura",
@@ -296,6 +320,30 @@ export class PlayerState {
     this.emit();
   }
 
+  applyAuthoritative(state: AuthoritativePlayerState): void {
+    if (!this.#authoritative) {
+      throw new Error("PlayerState offline não aceita snapshot autoritativo");
+    }
+    this.#name = state.name.trim() || this.#name;
+    this.#level = clampWholeNumber(state.level, 1, MAX_CLASSIC_LEVEL);
+    this.#experience = clampSafeInteger(state.totalExperience, 0, Number.MAX_SAFE_INTEGER);
+    this.#maxHp = clampWholeNumber(state.maxHp, 1, 2_000_000_000);
+    this.#maxMp = clampWholeNumber(state.maxMp, 0, 2_000_000_000);
+    this.#hp = clampWholeNumber(state.hp, 0, this.#maxHp);
+    this.#mp = clampWholeNumber(state.mp, 0, this.#maxMp);
+    this.#attack = clampWholeNumber(state.attack, 0, 2_000_000_000);
+    this.#defense = clampWholeNumber(state.defense, 0, 2_000_000_000);
+    this.#primaryAttributes = {
+      str: clampWholeNumber(state.strength, 0, 65_535),
+      int: clampWholeNumber(state.intelligence, 0, 65_535),
+      dex: clampWholeNumber(state.dexterity, 0, 65_535),
+      con: clampWholeNumber(state.constitution, 0, 65_535),
+    };
+    this.#freeAttributePoints = clampWholeNumber(state.freeAttributePoints, 0, 65_535);
+    this.#coins = clampWholeNumber(state.coins, 0, 2_000_000_000);
+    this.emit();
+  }
+
   subscribe(listener: (snapshot: PlayerSnapshot) => void): () => void {
     this.#listeners.add(listener);
     listener(this.snapshot);
@@ -304,6 +352,7 @@ export class PlayerState {
 
   /** Atomically spends free offline points and emits one consistent snapshot. */
   allocatePrimaryAttribute(attribute: PrimaryAttribute, amount = 1): boolean {
+    if (this.#authoritative) return false;
     if (!isPrimaryAttribute(attribute) || !Number.isInteger(amount) || amount <= 0) return false;
     if (this.#hp <= 0 || this.#freeAttributePoints < amount) return false;
     const current = this.#primaryAttributes[attribute];
@@ -315,6 +364,7 @@ export class PlayerState {
   }
 
   takeDamage(rawDamage: number): number {
+    if (this.#authoritative) return 0;
     if (!this.snapshot.alive || !Number.isFinite(rawDamage) || rawDamage <= 0) return 0;
     const applied = Math.max(1, Math.round(rawDamage - this.#defense * 0.45));
     const before = this.#hp;
@@ -324,6 +374,7 @@ export class PlayerState {
   }
 
   heal(amount: number): number {
+    if (this.#authoritative) return 0;
     if (!Number.isFinite(amount) || amount <= 0 || !this.snapshot.alive) return 0;
     const before = this.#hp;
     this.#hp = Math.min(this.#maxHp, this.#hp + Math.round(amount));
@@ -332,6 +383,7 @@ export class PlayerState {
   }
 
   restoreMana(amount: number): number {
+    if (this.#authoritative) return 0;
     if (!Number.isFinite(amount) || amount <= 0 || !this.snapshot.alive) return 0;
     const before = this.#mp;
     this.#mp = Math.min(this.#maxMp, this.#mp + Math.round(amount));
@@ -340,6 +392,7 @@ export class PlayerState {
   }
 
   spendMana(amount: number): boolean {
+    if (this.#authoritative) return false;
     const cost = Math.max(0, Math.round(amount));
     if (!this.snapshot.alive || this.#mp < cost) return false;
     if (cost === 0) return true;
@@ -349,12 +402,21 @@ export class PlayerState {
   }
 
   revive(): void {
+    if (this.#authoritative) return;
     this.#hp = this.#maxHp;
     this.#mp = this.#maxMp;
     this.emit();
   }
 
   grantRewards(experience: number, coins = 0): RewardSummary {
+    if (this.#authoritative) return {
+      levelsGained: 0,
+      levelUps: 0,
+      experienceAdded: 0,
+      coinsAdded: 0,
+      attackGained: 0,
+      attributePointsGained: 0,
+    };
     const experienceAdded = clampReward(experience, 0, 2_000_000);
     const coinsAdded = clampReward(coins, 0, 50_000_000);
     const initialLevel = this.#level;
@@ -387,6 +449,7 @@ export class PlayerState {
   }
 
   addItem(item: InventoryItem, quantity = 1, notify = true): number {
+    if (this.#authoritative) return 0;
     let remaining = Math.max(0, Math.trunc(quantity));
     if (remaining === 0) return 0;
     for (const stack of this.#inventory) {
@@ -409,6 +472,7 @@ export class PlayerState {
 
   /** Moves, merges or swaps two positions in the flattened four-bag inventory. */
   moveInventoryItem(from: number, to: number): boolean {
+    if (this.#authoritative) return false;
     if (!isInventorySlot(from) || !isInventorySlot(to)) return false;
     const source = this.#inventory[from];
     if (!source) return false;
@@ -442,6 +506,7 @@ export class PlayerState {
 
   /** Equips an item and atomically puts the previous occupant back in its bag slot. */
   equipInventorySlot(slot: number): boolean {
+    if (this.#authoritative) return false;
     if (!isInventorySlot(slot)) return false;
     const stack = this.#inventory[slot];
     const equipmentSlot = stack?.item.equipSlot;
@@ -463,6 +528,7 @@ export class PlayerState {
    * position in any bag. A full inventory leaves both sides untouched.
    */
   unequipEquipmentSlot(slot: EquipmentSlot, preferredBagSlot?: number): boolean {
+    if (this.#authoritative) return false;
     if (!isEquipmentSlot(slot)) return false;
     if (preferredBagSlot !== undefined && !isInventorySlot(preferredBagSlot)) return false;
     const equipped = this.#equipment[slot];
@@ -480,6 +546,7 @@ export class PlayerState {
   }
 
   useInventorySlot(slot: number): boolean {
+    if (this.#authoritative) return false;
     const stack = this.#inventory[slot];
     if (!stack || stack.item.kind !== "consumable" || !this.snapshot.alive) return false;
     let consumed = false;
@@ -512,6 +579,18 @@ function clampReward(value: number, minimum: number, maximum: number): number {
 function clampWholeNumber(value: number, minimum: number, maximum: number): number {
   if (!Number.isFinite(value)) return minimum;
   return Math.max(minimum, Math.min(maximum, Math.trunc(value)));
+}
+
+function clampSafeInteger(
+  value: number | bigint,
+  minimum: number,
+  maximum: number,
+): number {
+  const numeric = typeof value === "bigint"
+    ? Number(value > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : value)
+    : value;
+  if (!Number.isFinite(numeric)) return minimum;
+  return Math.max(minimum, Math.min(maximum, Math.trunc(numeric)));
 }
 
 function isPrimaryAttribute(value: string): value is PrimaryAttribute {

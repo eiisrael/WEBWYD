@@ -10,17 +10,21 @@ const projectRoot = path.resolve(import.meta.dirname, "..");
 const clientRoot = path.resolve(process.argv[2] ?? path.join(projectRoot, "../tjs/Origem"));
 const meshRoot = path.join(clientRoot, "mesh");
 const outputRoot = path.join(projectRoot, "public/game-data/classic/player");
+const dataRoot = path.join(projectRoot, "public/game-data/classic/data");
 const meshesRoot = path.join(outputRoot, "meshes");
 const texturesRoot = path.join(outputRoot, "textures");
 const mountsRoot = path.join(outputRoot, "mounts");
 const summonsRoot = path.join(outputRoot, "summons");
 const griupanRoot = path.join(outputRoot, "familiars/ag01");
 
+await mkdir(dataRoot, { recursive: true });
 await mkdir(meshesRoot, { recursive: true });
 await mkdir(texturesRoot, { recursive: true });
 await mkdir(mountsRoot, { recursive: true });
 await mkdir(summonsRoot, { recursive: true });
 await mkdir(griupanRoot, { recursive: true });
+
+await importClassicItemCatalog();
 
 // LOOK_INFO equipment and SetHumanCostume cases used by the Huntress wardrobe.
 // Mesh and texture choices live in one shared table consumed by the runtime.
@@ -206,4 +210,60 @@ function decodeWys(encoded) {
   dds.write("DDS", 0, "ascii");
   dds.write(dds[84] === "2".charCodeAt(0) ? "DXT1" : "DXT3", 84, "ascii");
   return dds;
+}
+
+
+async function importClassicItemCatalog() {
+  const csvPath = path.join(clientRoot, "ItemList.csv");
+  const csv = await readFile(csvPath, "utf8");
+  const items = [];
+
+  for (const line of csv.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const columns = line.split(",");
+    const index = Number(columns[0]);
+    if (!Number.isInteger(index) || index < 0) continue;
+
+    const [mesh = 0, texture = 0] = (columns[2] ?? "0.0")
+      .split(".")
+      .map((value) => Number(value) || 0);
+    let itemClass = 0;
+    let weaponType = 0;
+    for (let field = 9; field + 1 < columns.length; field += 2) {
+      const effect = columns[field];
+      const value = Number(columns[field + 1] ?? 0) || 0;
+      if (effect === "EF_CLASS") itemClass = value;
+      if (effect === "EF_WTYPE") weaponType = value;
+    }
+
+    items.push({
+      i: index,
+      n: columns[1] ?? "",
+      m: mesh,
+      t: texture,
+      p: Number(columns[6] ?? 0) || 0,
+      g: Number(columns[8] ?? 0) || 0,
+      c: itemClass,
+      w: weaponType,
+    });
+  }
+
+  await writeFile(
+    path.join(dataRoot, "items.json"),
+    JSON.stringify({
+      version: 1,
+      source: "ItemList.csv",
+      fields: {
+        i: "index",
+        n: "name",
+        m: "IndexMesh",
+        t: "IndexTexture",
+        p: "nPos",
+        g: "Grade",
+        c: "EF_CLASS",
+        w: "EF_WTYPE",
+      },
+      items,
+    }),
+  );
 }

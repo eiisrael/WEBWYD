@@ -1299,3 +1299,133 @@ button, select { font: inherit; }
 .map-teleport.is-online-locked {
   opacity: .58;
 }
+
+
+/* Online authoritative surfaces: compact Win32-era treatment matching the
+   existing classic HUD. Data and actions still come exclusively from TMSrv. */
+.online-party-panel,
+.online-party-invite,
+.online-shop-panel {
+  position: fixed;
+  z-index: 39;
+  border: 2px ridge #756c59;
+  background: linear-gradient(rgb(22 23 21 / 98%), rgb(5 7 7 / 98%));
+  color: #d8d1c0;
+  font: 9px Tahoma, Arial, sans-serif;
+  text-shadow: 1px 1px #000;
+  box-shadow: 3px 4px 0 rgb(0 0 0 / 48%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.online-party-panel.is-visible,
+.online-party-invite.is-visible,
+.online-shop-panel.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.online-party-panel { top: 171px; left: 9px; width: 172px; padding: 4px; }
+.online-party-panel header,
+.online-shop-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  min-height: 22px;
+  margin: -4px -4px 4px;
+  padding: 3px 5px;
+  border-bottom: 1px solid #191b1d;
+  background: linear-gradient(#71604a, #322d28 46%, #17191a 52%, #282824);
+  color: #f1dfad;
+}
+#online-pk-toggle,
+.online-party-invite button,
+.online-shop-panel header button {
+  border: 1px outset #796d55;
+  border-radius: 0;
+  background: #171918;
+  color: #d8cda9;
+  font: 700 8px Tahoma, sans-serif;
+  cursor: pointer;
+}
+#online-pk-toggle.is-active { border-color: #a64036; background: #5d1d18; color: #ffd2c8; }
+#online-party-members { display: grid; gap: 3px; }
+.online-party-member {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 6px;
+  padding: 4px 5px;
+  border: 1px solid #403c34;
+  background: #0d0f0f;
+}
+.online-party-member strong { overflow: hidden; color: #e8ddb8; text-overflow: ellipsis; white-space: nowrap; }
+.online-party-member small { color: #aaa18f; }
+.online-party-member i {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  height: 5px;
+  border: 1px solid #060606;
+  background: #150707;
+}
+.online-party-member i::after {
+  content: "";
+  display: block;
+  width: var(--party-hp, 100%);
+  height: 100%;
+  background: #9f241e;
+}
+.online-party-invite {
+  top: 76px;
+  left: 50%;
+  width: 260px;
+  padding: 10px;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.online-party-invite strong { display: block; margin-bottom: 7px; color: #f1dfad; }
+.online-party-invite span { display: block; margin-bottom: 9px; color: #e9e2ce; }
+.online-party-invite div { display: flex; justify-content: center; gap: 8px; }
+.online-party-invite button { min-width: 84px; padding: 5px 9px; }
+.online-shop-panel {
+  top: 50%;
+  right: 254px;
+  width: 246px;
+  min-height: 338px;
+  padding: 4px;
+  transform: translateY(-50%);
+}
+.online-shop-panel header span { margin-left: auto; color: #b8a567; font-size: 8px; }
+.online-shop-panel header button { width: 18px; height: 18px; padding: 0; }
+#online-shop-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 42px);
+  gap: 4px;
+  align-content: start;
+  min-height: 274px;
+  padding: 5px;
+  border: 1px solid #38362f;
+  background: rgb(3 4 4 / 72%);
+}
+.online-shop-item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 2px;
+  border: 1px solid #4c473b;
+  background: radial-gradient(circle at 35% 30%, #282823, #090a0a 70%);
+  color: #d9c879;
+  font: 700 8px Tahoma, sans-serif;
+  cursor: default;
+}
+.online-shop-item small {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  color: #f0dd8a;
+  font-size: 7px;
+}
+.online-shop-item.is-empty { opacity: .22; }
+#online-shop-status { padding: 6px 5px 2px; color: #918a7b; font-size: 8px; }

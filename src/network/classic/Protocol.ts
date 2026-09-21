@@ -9,6 +9,8 @@ export const CLASSIC_INIT_CODE = 521_270_033;
 export const ClassicOpcode = {
   messagePanel: 0x101,
   removeMob: 0x165,
+  shopList: 0x17c,
+  closeShop: 0x196,
   setHpMp: 0x181,
   setHpDam: 0x18a,
   setHpMode: 0x292,
@@ -22,6 +24,7 @@ export const ClassicOpcode = {
   accountLogin: 0x20d,
   recall: 0x289,
   quest: 0x28b,
+  requestShopList: 0x27b,
   requestCapsuleInfo: 0x2cd,
   deleteItem: 0x2e4,
   splitItem: 0x2e5,
@@ -38,10 +41,13 @@ export const ClassicOpcode = {
   partyAdd: 0x37d,
   partyRemove: 0x37e,
   partyRequest: 0x37f,
+  buy: 0x379,
+  sell: 0x37a,
   trade: 0x383,
   closeTrade: 0x384,
   withdraw: 0x387,
   deposit: 0x388,
+  requestBuy: 0x398,
   setPkMode: 0x399,
   attackOne: 0x39d,
   attackTwo: 0x39e,
@@ -91,6 +97,11 @@ export const CLASSIC_PACKET_SIZES = {
   partyAdd: 40,
   partyRemove: 16,
   partyConfirm2: 32,
+  shopList: 532,
+  requestShopList: 20,
+  buy: 24,
+  sell: 20,
+  requestBuy: 36,
   /**
    * O layout C++ possui 2 bytes de padding entre Force (short) e IP[4].
    * sizeof(MSG_AccountLogin) = 116 no ABI Win32 usado pela base.

@@ -170,6 +170,15 @@ export class MonsterCatalog {
     return this.templates[index] ?? null;
   }
 
+  /**
+   * Resolves a TMSrv MSG_CreateMob back to the imported npcdb template.
+   * Names are authoritative; equipment only disambiguates equal-name variants.
+   * Player names therefore never fall through to a visually "similar" NPC.
+   */
+  resolvePacketTemplateIndex(name: string, equipment: readonly number[]): number | null {
+    return resolveClassicMonsterTemplateIndex(this.templates, name, equipment);
+  }
+
   visualFamily(skin: number): MonsterVisualFamily | null {
     return this.#families.get(skin) ?? null;
   }
@@ -221,4 +230,52 @@ function decodeGenerator(row: readonly (number | null)[], columns: ReadonlyMap<s
     segments,
     destination: point("Dest"),
   };
+}
+
+
+export function resolveClassicMonsterTemplateIndex(
+  templates: readonly MonsterTemplate[],
+  name: string,
+  equipment: readonly number[],
+): number | null {
+  const normalizedName = normalizeClassicActorName(name);
+  if (!normalizedName) return null;
+
+  let bestIndex: number | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < templates.length; index++) {
+    const template = templates[index];
+    if (!template || template.missing || !template.visual || !template.equipment) continue;
+    if (normalizeClassicActorName(template.name) !== normalizedName
+      && normalizeClassicActorName(template.key) !== normalizedName) continue;
+
+    let score = 0;
+    for (let slot = 0; slot < 16; slot++) {
+      const packetItem = (equipment[slot] ?? 0) & 0x0fff;
+      const templateItem = (template.equipment[slot * 7] ?? 0) & 0x0fff;
+      if (packetItem === templateItem) {
+        score += slot === 0 ? 64 : (packetItem === 0 ? 1 : 4);
+      } else if (slot === 0) {
+        score -= 64;
+      } else if (packetItem !== 0 || templateItem !== 0) {
+        score -= 2;
+      }
+    }
+
+    if (score <= bestScore) continue;
+    bestScore = score;
+    bestIndex = index;
+  }
+
+  return bestIndex;
+}
+
+function normalizeClassicActorName(value: string): string {
+  return value
+    .replace(/\0.*$/s, "")
+    .trim()
+    .replaceAll("_", " ")
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("pt-BR");
 }

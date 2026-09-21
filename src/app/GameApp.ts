@@ -258,6 +258,30 @@ export class GameApp {
     this.#hud.onCatalogSkillUse = (classicIndex) => this.requestCatalogSkill(classicIndex);
     this.#hud.bindPlayer(this.#playerState);
     this.#playerState.subscribe(this.playerEquipmentChanged);
+    if (this.#onlineSession) {
+      this.#onlineUnsubscribers.push(
+        this.#onlineSession.on("runtime", (runtime) => {
+          const field = this.#onlineSession?.snapshot.field;
+          if (field) this.applyOnlinePlayerRuntime(field, runtime);
+        }),
+        this.#onlineSession.fieldReplica.onChange((event) => {
+          const field = this.#onlineSession?.snapshot.field;
+          if (!field || !this.#player) return;
+          if (
+            (event.type === "create" || event.type === "update" || event.type === "attack")
+            && event.actor.id === field.clientId
+          ) {
+            const target = { x: event.actor.posX + 0.5, y: event.actor.posY + 0.5 };
+            if (Math.hypot(
+              target.x - this.#player.position.x,
+              target.y - this.#player.position.y,
+            ) > 0.01) {
+              this.#player.teleport(target);
+            }
+          }
+        }),
+      );
+    }
     this.#hud.configureSkills(
       this.#skills.skills.map((skill) => ({ ...skill, offensive: isOffensiveBarSkill(skill) })),
       (slot) => this.requestSkill(slot),
@@ -347,8 +371,16 @@ export class GameApp {
     this.configureMountSelector();
     const map = assets.manifest.maps[assets.manifest.defaultMap];
     if (!map) throw new Error("Mapa padrão não definido");
-    const spawn = { x: map.spawn[0], y: map.spawn[1] };
-    const world = new ClassicWorld(assets, spawn);
+    const onlineField = this.#onlineSession?.snapshot.field ?? null;
+    if (this.#onlineSession && !onlineField) {
+      throw new Error("Sessão online ainda não entrou no Field");
+    }
+    const spawn = onlineField
+      ? { x: onlineField.posX, y: onlineField.posY }
+      : { x: map.spawn[0], y: map.spawn[1] };
+    const world = new ClassicWorld(assets, spawn, {
+      enableLocalSpawns: this.#onlineSession === null,
+    });
     // O boot aguarda apenas o TRN atual. DAT, modelos e vizinhos entram sem
     // bloquear a primeira imagem.
     await world.ensureCurrent(spawn, true);
@@ -368,47 +400,84 @@ export class GameApp {
     }
     world.setEffectsEnabled(this.#effectsEnabled);
     this.#scene.add(world.object);
+    if (this.#onlineSession) {
+      this.#networkActors = await ClassicNetworkActorLayer.create(
+        assets,
+        this.#onlineSession.fieldReplica,
+        {
+          origin: world.origin,
+          heightAt: (position) => world.heightAt(position),
+        },
+      );
+      this.#scene.add(this.#networkActors.object);
+    }
     this.#player = new Player(world, spawn);
     this.#player.setBeforeClassicVisualRelease(() => this.#skillEffects.clear());
     this.#player.setEffectsEnabled(this.#effectsEnabled);
     this.#scene.add(this.#player.object);
-    void this.#player.loadClassicAvatar(assets, "huntress", DEFAULT_HUNTRESS_LOOK_KEY).then((loaded) => {
+    const activeClass = classicPlayerClass(this.#activeClassKey);
+    void this.#player.loadClassicAvatar(
+      assets,
+      activeClass.key,
+      activeClass.defaultLookKey,
+    ).then((loaded) => {
       const status = document.querySelector<HTMLElement>("#outfit-status");
       if (!loaded) {
         if (status) status.textContent = "Visual indisponível";
         return;
       }
       const select = document.querySelector<HTMLSelectElement>("#outfit-select");
-      if (select) select.value = this.#player?.avatarLookKey ?? DEFAULT_HUNTRESS_LOOK_KEY;
+      if (select) select.value = this.#player?.avatarLookKey ?? activeClass.defaultLookKey;
       if (status) status.textContent = this.#player?.avatarLookName ?? "Traje equipado";
     }).catch((error: unknown) => {
       console.warn("Avatar clássico indisponível; mantendo fallback", error);
     });
-    void this.#player.loadClassicFamiliar(assets).then((loaded) => {
-      if (!loaded) console.warn("Familiar Griupan clássico indisponível");
-    }).catch((error: unknown) => {
-      console.warn("Familiar Griupan clássico indisponível", error);
-    });
-    void this.#player.loadClassicMount(assets, DEFAULT_MOUNT_LOOK_KEY).then((loaded) => {
-      const select = document.querySelector<HTMLSelectElement>("#mount-select");
-      const status = document.querySelector<HTMLElement>("#mount-select-status");
-      if (!loaded) {
-        if (status) status.textContent = "Montarias indisponíveis";
-        this.#hud.addLog("A montaria clássica não pôde ser carregada.", "system");
-        return;
-      }
-      if (select) select.value = this.#player?.mountLookKey ?? DEFAULT_MOUNT_LOOK_KEY;
-      if (status) status.textContent = this.#player?.mountName ?? "Montaria equipada";
-      if (this.#player?.mounted) this.#hud.setMounted(true, this.#player.mountName ?? "Montaria Lv. 120");
-    }).catch((error: unknown) => {
-      console.warn("Montaria clássica indisponível", error);
-    });
+    if (!this.#onlineSession) {
+      void this.#player.loadClassicFamiliar(assets).then((loaded) => {
+        if (!loaded) console.warn("Familiar Griupan clássico indisponível");
+      }).catch((error: unknown) => {
+        console.warn("Familiar Griupan clássico indisponível", error);
+      });
+      void this.#player.loadClassicMount(assets, DEFAULT_MOUNT_LOOK_KEY).then((loaded) => {
+        const select = document.querySelector<HTMLSelectElement>("#mount-select");
+        const status = document.querySelector<HTMLElement>("#mount-select-status");
+        if (!loaded) {
+          if (status) status.textContent = "Montarias indisponíveis";
+          this.#hud.addLog("A montaria clássica não pôde ser carregada.", "system");
+          return;
+        }
+        if (select) select.value = this.#player?.mountLookKey ?? DEFAULT_MOUNT_LOOK_KEY;
+        if (status) status.textContent = this.#player?.mountName ?? "Montaria equipada";
+        if (this.#player?.mounted) this.#hud.setMounted(true, this.#player.mountName ?? "Montaria Lv. 120");
+      }).catch((error: unknown) => {
+        console.warn("Montaria clássica indisponível", error);
+      });
+  
+    }
     this.activateField(spawn, true);
     this.#scene.add(this.#clickMarker);
     this.#scene.add(this.#combatEffects.object);
     this.configureScene();
+    if (this.#onlineSession) this.lockOnlineLocalControls();
     document.querySelector("#loading")?.classList.add("is-hidden");
     this.#renderer.setAnimationLoop(this.frame);
+  }
+
+  private lockOnlineLocalControls(): void {
+    for (const selector of [
+      "#player-class-select",
+      "#outfit-select",
+      "#mount-select",
+      "#map-select",
+    ]) {
+      const control = document.querySelector<HTMLSelectElement>(selector);
+      if (control) control.disabled = true;
+    }
+    document.querySelector<HTMLElement>("#map-teleport")?.classList.add("is-online-locked");
+    this.#hud.addLog(
+      "ONLINE · estado autoritativo ativo; movimento/combate local permanecem bloqueados até o envio de MSG_Action/Attack.",
+      "system",
+    );
   }
 
   private configureScene(): void {

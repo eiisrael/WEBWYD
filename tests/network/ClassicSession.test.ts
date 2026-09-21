@@ -119,6 +119,95 @@ function characterConfirmation(): Uint8Array {
   return writer.finish();
 }
 
+
+function hpMpUpdate(): Uint8Array {
+  return new PacketWriter(CLASSIC_PACKET_SIZES.setHpMp)
+    .header({
+      size: CLASSIC_PACKET_SIZES.setHpMp,
+      keyword: 0,
+      checksum: 0,
+      type: ClassicOpcode.setHpMp,
+      id: 777,
+      tick: 3_000,
+    })
+    .i32(900).i32(400).i32(880).i32(390)
+    .finish();
+}
+
+function hpDamageUpdate(): Uint8Array {
+  return new PacketWriter(CLASSIC_PACKET_SIZES.setHpDam)
+    .header({
+      size: CLASSIC_PACKET_SIZES.setHpDam,
+      keyword: 0,
+      checksum: 0,
+      type: ClassicOpcode.setHpDam,
+      id: 777,
+      tick: 3_100,
+    })
+    .i32(650).i32(250)
+    .finish();
+}
+
+function hpModeUpdate(): Uint8Array {
+  return new PacketWriter(CLASSIC_PACKET_SIZES.setHpMode)
+    .header({
+      size: CLASSIC_PACKET_SIZES.setHpMode,
+      keyword: 0,
+      checksum: 0,
+      type: ClassicOpcode.setHpMode,
+      id: 777,
+      tick: 3_200,
+    })
+    .i32(0).i16(22).padding(2)
+    .finish();
+}
+
+function scoreUpdate(): Uint8Array {
+  const writer = new PacketWriter(CLASSIC_PACKET_SIZES.updateScore);
+  writer.header({
+    size: CLASSIC_PACKET_SIZES.updateScore,
+    keyword: 0,
+    checksum: 0,
+    type: ClassicOpcode.updateScore,
+    id: 777,
+    tick: 3_300,
+  });
+  writer.i16(121).padding(2);
+  writer.i32(500).i32(700);
+  writer.i8(0).i8(6).padding(2);
+  writer.i32(1500).i32(900).i32(1200).i32(700);
+  writer.i16(20).i16(30).i16(40).i16(50);
+  writer.u16(1).u16(2).u16(3).u16(4);
+  writer.u8(15).u8(10);
+  for (let index = 0; index < 32; index++) writer.u16(index);
+  writer.u16(77).u16(2);
+  writer.i8(1).i8(2).i8(3).i8(4);
+  writer.u8(5).u8(6);
+  writer.i32(1190).i32(690);
+  writer.i32(0x10203040);
+  writer.u8(7).u8(8).u8(9).u8(10);
+  return writer.finish();
+}
+
+function etcUpdate(): Uint8Array {
+  return new PacketWriter(CLASSIC_PACKET_SIZES.updateEtc)
+    .header({
+      size: CLASSIC_PACKET_SIZES.updateEtc,
+      keyword: 0,
+      checksum: 0,
+      type: ClassicOpcode.updateEtc,
+      id: 777,
+      tick: 3_400,
+    })
+    .u32(123)
+    .u64(999999n)
+    .u32(0xaabbccdd)
+    .u32(0x11223344)
+    .u16(10).u16(11).u16(12).u16(13)
+    .i32(14000).i32(15000).i32(16000)
+    .finish();
+}
+
 describe("ClassicSession", () => {
   it("percorre login → seleção → field usando packets clássicos", () => {
     const transport = new FakeTransport();
@@ -196,4 +285,77 @@ describe("ClassicSession", () => {
     transport.receive(message);
     expect(onMessage).toHaveBeenCalledWith("Servidor indisponível");
   });
+  it("atualiza o runtime local apenas com estado autoritativo do TMSrv", () => {
+    const transport = new FakeTransport();
+    const session = new ClassicSession(transport);
+    const runtimeEvents: unknown[] = [];
+    session.on("runtime", (runtime) => runtimeEvents.push(runtime));
+
+    session.login("conta", "senha", "00:11:22:33:44:55");
+    transport.open();
+    transport.receive(accountConfirmation());
+    session.selectCharacter(0);
+    transport.receive(characterConfirmation());
+    expect(session.snapshot.state).toBe("field");
+
+    transport.receive(hpMpUpdate());
+    expect(session.snapshot.field?.runtime).toMatchObject({
+      currentHp: 900,
+      currentMp: 400,
+      requestedHp: 880,
+      requestedMp: 390,
+    });
+
+    transport.receive(hpDamageUpdate());
+    expect(session.snapshot.field?.runtime).toMatchObject({
+      currentHp: 650,
+      requestedHp: 650,
+      lastDamage: 250,
+    });
+
+    transport.receive(scoreUpdate());
+    expect(session.snapshot.field?.runtime).toMatchObject({
+      score: {
+        level: 121,
+        armorClass: 500,
+        damage: 700,
+        hp: 1190,
+        mp: 690,
+      },
+      currentHp: 1190,
+      currentMp: 690,
+      critical: 15,
+      saveMana: 10,
+      guild: 77,
+      guildLevel: 2,
+      regenHp: 5,
+      regenMp: 6,
+      magic: 0x10203040,
+      special: [7, 8, 9, 10],
+    });
+
+    transport.receive(etcUpdate());
+    expect(session.snapshot.field?.runtime).toMatchObject({
+      hold: 123,
+      experience: 999999n,
+      learnedSkill: 0xaabbccdd,
+      secondaryLearnedSkill: 0x11223344,
+      scoreBonus: 10,
+      specialBonus: 11,
+      skillBonus: 12,
+      magic: 13,
+      coin: 14000,
+      donate: 15000,
+      honor: 16000,
+    });
+
+    transport.receive(hpModeUpdate());
+    expect(session.snapshot.field?.runtime).toMatchObject({
+      currentHp: 0,
+      requestedHp: 0,
+      mode: 22,
+    });
+    expect(runtimeEvents).toHaveLength(5);
+  });
+
 });

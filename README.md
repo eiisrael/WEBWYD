@@ -5,9 +5,11 @@ escrita do zero em TypeScript e Three.js. O cliente clássico/decompilado é usa
 como referência de formatos e comportamento; o código web antigo não é
 reutilizado.
 
-> Projeto em desenvolvimento e atualmente offline: rede e servidor ainda não
-> fazem parte deste recorte. Consulte a [fila canônica](PENDENCIAS.md) para ver o
-> que está homologado e o que ainda é provisório.
+> Projeto em desenvolvimento. O **modo offline continua sendo o padrão
+> homologado**; existe também um modo online opt-in experimental
+> (`?mode=online`) que usa o gateway clássico e o TMSrv. Consulte a
+> [fila canônica](PENDENCIAS.md) para ver o que já é autoritativo e o que ainda
+> está provisório.
 
 ## Estado atual
 
@@ -95,6 +97,38 @@ bun run dev
 Abra [http://localhost:5173](http://localhost:5173). O jogo começa em Armia, na
 coordenada `2100, 2100`. Se a porta estiver ocupada, o Vite mostrará no terminal
 a próxima porta utilizada.
+
+### Modo online experimental
+
+A BASE759 define `GAME_PORT=7556` para o cliente/TMSrv e `DB_PORT=7514`
+para TMSrv/DBSrv. Com TMSrv e DBSrv ativos, inicie a ponte web:
+
+```bash
+WYD_TCP_HOST=127.0.0.1 \
+WYD_TCP_PORT=7556 \
+WYD_GATEWAY_ORIGINS=http://localhost:5173 \
+bun run gateway
+```
+
+Depois rode o Vite normalmente:
+
+```bash
+bun run dev
+```
+
+e abra:
+
+```text
+http://localhost:5173/?mode=online
+```
+
+Esse modo já cobre login, seleção de personagem, entrada no Field, estado
+autoritativo básico, NPCs/monstros recebidos do servidor e clique-para-mover
+por `MSG_Action`. Ele **não substitui o offline como modo padrão**: jogadores
+remotos, inventário/equipamento online completo, ataque/skills enviados pelo
+browser e demais sistemas MMORPG ainda estão em reconstrução.
+
+Detalhes técnicos: [docs/NETWORK_PROTOCOL.md](docs/NETWORK_PROTOCOL.md).
 
 ### 3. Validar um build de produção
 

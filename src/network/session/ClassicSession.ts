@@ -113,6 +113,18 @@ export interface ClassicBasicAttackIntent {
   readonly progress?: number;
 }
 
+export interface ClassicSkillAttackIntent {
+  readonly skillIndex: number;
+  readonly maxTargets: number;
+  readonly targetIds: readonly number[];
+  readonly posX: number;
+  readonly posY: number;
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly progress?: number;
+  readonly skillParm?: number;
+}
+
 export interface ClassicSessionEventMap {
   readonly state: ClassicSessionSnapshot;
   readonly message: string;
@@ -278,6 +290,47 @@ export class ClassicSession {
       skillIndex: 0,
       requestedMp: 0,
       damages: [{ targetId, damage: -2 }],
+    }, { id: field.clientId }));
+  }
+
+  sendSkillAttackIntent(intent: ClassicSkillAttackIntent): void {
+    this.assertAlive();
+    const field = this.#field;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`Skill inválida no estado ${this.#state}`);
+    }
+
+    const skillIndex = Math.trunc(intent.skillIndex);
+    if (skillIndex < 0 || skillIndex > 255) {
+      throw new RangeError(`Índice de skill inválido: ${skillIndex}`);
+    }
+
+    const maxTargets = Math.max(1, Math.min(13, Math.trunc(intent.maxTargets)));
+    const opcode = maxTargets === 1
+      ? ClassicOpcode.attackOne
+      : (maxTargets === 2 ? ClassicOpcode.attackTwo : ClassicOpcode.attackMulti);
+    const packetCapacity = maxTargets === 1 ? 1 : (maxTargets === 2 ? 2 : 13);
+    const targetIds = [...new Set(intent.targetIds.map((id) => Math.trunc(id)))]
+      .filter((id) => id > 0)
+      .slice(0, Math.min(maxTargets, packetCapacity));
+    if (targetIds.length === 0) throw new RangeError("Skill clássica sem alvo válido");
+
+    this.transport.send(createClientAttackPacket({
+      opcode,
+      posX: Math.trunc(intent.posX),
+      posY: Math.trunc(intent.posY),
+      targetX: Math.trunc(intent.targetX),
+      targetY: Math.trunc(intent.targetY),
+      attackerId: field.clientId,
+      progress: Math.trunc(intent.progress ?? 0),
+      motion: 0xff,
+      skillParm: Math.trunc(intent.skillParm ?? 0) & 0xff,
+      flagLocal: 0,
+      currentHp: 0,
+      currentMp: -1,
+      skillIndex,
+      requestedMp: 0,
+      damages: targetIds.map((targetId) => ({ targetId, damage: -1 })),
     }, { id: field.clientId }));
   }
 

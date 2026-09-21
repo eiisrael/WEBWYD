@@ -179,6 +179,9 @@ export class GameApp {
   #networkPlayers: ClassicNetworkPlayerLayer | null = null;
   #onlineTargetId: number | null = null;
   #onlinePendingAttack = false;
+  #onlinePendingSkill: ClassSkill | null = null;
+  #onlineExpectedSkillIndex: number | null = null;
+  readonly #onlineSkillReadyAt = new Map<number, number>();
   #onlineAttackCooldown = 0;
   #onlineApproachCooldown = 0;
   readonly #onlineUnsubscribers: (() => void)[] = [];
@@ -261,7 +264,7 @@ export class GameApp {
     };
     this.#input.onEffectsToggle = () => this.toggleEffects();
     this.#input.onSkill = (slot) => {
-      if (this.#onlineSession) this.rejectOnlineLocalAction(`Skill ${slot}`);
+      if (this.#onlineSession) this.requestOnlineSkillBySlot(slot);
       else this.requestSkill(slot);
     };
     this.#hud.onAutoCombatModeSelected = (mode) => this.setAutoCombatMode(mode);
@@ -283,7 +286,7 @@ export class GameApp {
       this.#hud.addChatMessage(this.#playerState.snapshot.name, message, channel);
     };
     this.#hud.onCatalogSkillUse = (classicIndex) => {
-      if (this.#onlineSession) this.rejectOnlineLocalAction(`Skill #${classicIndex}`);
+      if (this.#onlineSession) this.requestOnlineSkillByClassicIndex(classicIndex);
       else this.requestCatalogSkill(classicIndex);
     };
     this.#hud.bindPlayer(this.#playerState);
@@ -316,7 +319,7 @@ export class GameApp {
             return;
           }
           if (event.type === "missing-attack" && event.actorId === field.clientId) {
-            this.#player.playAttack();
+            this.playOnlineServerAttack(event.attack.skillIndex);
             return;
           }
           if (event.type !== "create" && event.type !== "update" && event.type !== "attack") {
@@ -335,7 +338,9 @@ export class GameApp {
           ) > 0.01) {
             this.#player.teleport(target);
           }
-          if (event.type === "attack") this.#player.playAttack();
+          if (event.type === "attack") {
+            this.playOnlineServerAttack(event.actor.lastAttack?.skillIndex ?? 0);
+          }
         }),
       );
     }
@@ -695,6 +700,7 @@ export class GameApp {
 
   private selectOnlineTarget(actor: ClassicFieldActor): void {
     this.#onlineTargetId = actor.id;
+    this.#onlinePendingSkill = null;
     this.#onlinePendingAttack = true;
     this.#onlineAttackCooldown = 0;
     this.#onlineApproachCooldown = 0;
@@ -705,6 +711,7 @@ export class GameApp {
   private clearOnlineTarget(): void {
     this.#onlineTargetId = null;
     this.#onlinePendingAttack = false;
+    this.#onlinePendingSkill = null;
     this.#onlineApproachCooldown = 0;
   }
 
@@ -715,7 +722,7 @@ export class GameApp {
 
     this.#onlineAttackCooldown = Math.max(0, this.#onlineAttackCooldown - deltaSeconds);
     this.#onlineApproachCooldown = Math.max(0, this.#onlineApproachCooldown - deltaSeconds);
-    if (!this.#onlinePendingAttack || this.#onlineTargetId === null) return;
+    if ((!this.#onlinePendingAttack && !this.#onlinePendingSkill) || this.#onlineTargetId === null) return;
 
     const actor = session.fieldReplica.snapshot(this.#onlineTargetId);
     if (!actor || actor.score.hp <= 0) {
@@ -730,7 +737,11 @@ export class GameApp {
     );
     this.#player.faceToward(target);
 
-    if (distance > ONLINE_BASIC_ATTACK_RANGE) {
+    const pendingSkill = this.#onlinePendingSkill;
+    const requiredRange = pendingSkill
+      ? Math.max(1, pendingSkill.range)
+      : ONLINE_BASIC_ATTACK_RANGE;
+    if (distance > requiredRange) {
       if (this.#onlineApproachCooldown <= 0) {
         if (this.sendOnlineMoveRequest(target, false)) {
           this.#onlineApproachCooldown = ONLINE_APPROACH_INTERVAL_SECONDS;
@@ -742,6 +753,13 @@ export class GameApp {
     if (this.#onlineAttackCooldown > 0) return;
 
     try {
+      if (pendingSkill) {
+        this.sendOnlineSkillPacket(pendingSkill, [actor.id], actor);
+        this.#onlinePendingSkill = null;
+        this.#onlinePendingAttack = false;
+        return;
+      }
+
       session.sendBasicAttackIntent({
         targetId: actor.id,
         posX: Math.floor(this.#player.position.x),
@@ -749,15 +767,131 @@ export class GameApp {
         targetX: actor.posX,
         targetY: actor.posY,
       });
+      this.#onlineExpectedSkillIndex = null;
       this.#onlineAttackCooldown = ONLINE_ATTACK_INTERVAL_SECONDS;
       this.#onlinePendingAttack = false;
     } catch (error) {
       this.#hud.addLog(
-        error instanceof Error ? error.message : "Falha ao enviar MSG_Attack.",
+        error instanceof Error ? error.message : "Falha ao enviar ação online.",
         "system",
       );
       this.clearOnlineTarget();
     }
+  }
+
+  private requestOnlineSkillBySlot(slot: number): void {
+    const skill = this.#skills.skill(slot);
+    if (!skill) {
+      this.#hud.addLog(`Skill online inválida no slot ${slot}.`, "system");
+      return;
+    }
+    this.requestOnlineSkill(skill);
+  }
+
+  private requestOnlineSkillByClassicIndex(classicIndex: number): void {
+    const skill = this.#skills.skills.find((candidate) => candidate.classicIndex === classicIndex) ?? null;
+    if (!skill) {
+      this.#hud.addLog(`Skill clássica #${classicIndex} ainda não está no loadout auditado.`, "system");
+      return;
+    }
+    this.requestOnlineSkill(skill);
+  }
+
+  private requestOnlineSkill(skill: ClassSkill): void {
+    const session = this.#onlineSession;
+    const field = session?.snapshot.field;
+    if (!session || !field || !this.#player || !this.#playerState.snapshot.alive) return;
+
+    const now = performance.now();
+    const readyAt = this.#onlineSkillReadyAt.get(skill.classicIndex) ?? 0;
+    if (now < readyAt || this.#onlineAttackCooldown > 0) {
+      this.#hud.addLog(`${skill.name} ainda está recarregando.`, "system");
+      return;
+    }
+
+    if (skill.classicTargetType === 1 && skill.target === "enemy") {
+      const targetId = this.#onlineTargetId;
+      const actor = targetId === null ? null : session.fieldReplica.snapshot(targetId);
+      if (!actor || actor.score.hp <= 0) {
+        this.#hud.addLog(`Selecione um alvo online para ${skill.name}.`, "system");
+        return;
+      }
+      this.#onlinePendingAttack = false;
+      this.#onlinePendingSkill = skill;
+      this.#onlineApproachCooldown = 0;
+      this.updateOnlineTargetAction(0);
+      return;
+    }
+
+    if (skill.target === "self" && skill.classicTargetType === 0) {
+      // BASE759 has a party-expansion special case for #29/#44. Until party
+      // membership is replicated, sending #44 as a solo-only packet could
+      // silently omit party members, so keep that contract closed.
+      if (skill.classicIndex === 29 || skill.classicIndex === 44) {
+        this.#hud.addLog(
+          `${skill.name} aguarda replicação clássica de party para uso online.`,
+          "system",
+        );
+        return;
+      }
+      this.sendOnlineSkillPacket(skill, [field.clientId], null);
+      return;
+    }
+
+    this.#hud.addLog(
+      `${skill.name} usa TargetType ${skill.classicTargetType}; seleção multi-alvo clássica ainda não portada.`,
+      "system",
+    );
+  }
+
+  private sendOnlineSkillPacket(
+    skill: ClassSkill,
+    targetIds: readonly number[],
+    target: ClassicFieldActor | null,
+  ): void {
+    const session = this.#onlineSession;
+    const field = session?.snapshot.field;
+    if (!session || !field || !this.#player) return;
+
+    try {
+      session.sendSkillAttackIntent({
+        skillIndex: skill.classicIndex,
+        maxTargets: skill.maxTargets,
+        targetIds,
+        posX: Math.floor(this.#player.position.x),
+        posY: Math.floor(this.#player.position.y),
+        targetX: target?.posX ?? Math.floor(this.#player.position.x),
+        targetY: target?.posY ?? Math.floor(this.#player.position.y),
+      });
+    } catch (error) {
+      this.#hud.addLog(
+        error instanceof Error ? error.message : `Falha ao enviar ${skill.name}.`,
+        "system",
+      );
+      return;
+    }
+
+    this.#onlineExpectedSkillIndex = skill.classicIndex;
+    this.#onlineAttackCooldown = ONLINE_ATTACK_INTERVAL_SECONDS;
+    this.#onlineSkillReadyAt.set(
+      skill.classicIndex,
+      performance.now() + Math.max(1, skill.cooldownSeconds) * 1000,
+    );
+    this.#hud.addLog(`${skill.name} enviado ao TMSrv.`, "system");
+  }
+
+  private playOnlineServerAttack(skillIndex: number): void {
+    if (!this.#player) return;
+    const expected = this.#onlineExpectedSkillIndex;
+    this.#onlineExpectedSkillIndex = null;
+    if (expected !== null && expected === skillIndex) {
+      const skill = this.#skills.skills.find((candidate) => candidate.classicIndex === skillIndex);
+      if (skill) {
+        this.#player.playClassSkill(skill);
+        return;
+      }
+    }
+    this.#player.playAttack();
   }
 
   private sendOnlineMoveRequest(requested: WydPosition, logFailure: boolean): boolean {

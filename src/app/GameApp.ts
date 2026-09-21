@@ -284,6 +284,19 @@ export class GameApp {
           const field = this.#onlineSession?.snapshot.field;
           if (field) this.applyOnlinePlayerRuntime(field, runtime);
         }),
+        this.#onlineSession.on("message", (message) => {
+          this.#hud.addLog(message, "system");
+        }),
+        this.#onlineSession.on("error", (error) => {
+          this.#hud.addLog(`REDE · ${error.message}`, "system");
+        }),
+        this.#onlineSession.on("state", (snapshot) => {
+          if (snapshot.state === "disconnected") {
+            this.#hud.addLog("REDE · conexão com o TMSrv encerrada.", "system");
+          } else if (snapshot.state === "error") {
+            this.#hud.addLog("REDE · sessão entrou em estado de erro.", "system");
+          }
+        }),
         this.#onlineSession.fieldReplica.onChange((event) => {
           const field = this.#onlineSession?.snapshot.field;
           if (!field || !this.#player) return;

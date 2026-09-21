@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ClassicCPSockEncoder,
   ClassicCPSockStreamDecoder,
+  ClassicServerClock,
   decodeClassicCPSockPacket,
 } from "../../src/network/classic/CPSockCodec";
 import { PacketWriter } from "../../src/network/classic/PacketIO";
@@ -16,6 +17,27 @@ function message(type: number = ClassicOpcode.action): Uint8Array {
 }
 
 describe("CPSockCodec", () => {
+  it("mantém ClientTick alinhado ao último tick autoritativo do TMSrv", () => {
+    let now = 1_000;
+    const clock = new ClassicServerClock({
+      nowSource: () => now,
+      fallbackTickSource: () => 77,
+    });
+
+    expect(clock.now()).toBe(77);
+    clock.observe(500_000);
+    expect(clock.now()).toBe(500_000);
+
+    now += 275;
+    expect(clock.now()).toBe(500_275);
+
+    now -= 50;
+    expect(clock.now()).toBe(500_275);
+
+    clock.clear();
+    expect(clock.now()).toBe(77);
+  });
+
   it("codifica e decodifica um packet preservando o payload clássico", () => {
     const decoded = message();
     const encoder = new ClassicCPSockEncoder({

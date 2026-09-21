@@ -67,6 +67,7 @@ export class ClassicPlayerAvatar {
   readonly templateKey: string;
   readonly playerClass: ClassicPlayerClassDefinition;
   readonly look: ClassicPlayerLookDefinition;
+  readonly weaponDefinition: ClassicPlayerWeaponDefinition | null;
   readonly #lease: ClassicSkinnedInstanceLease;
   readonly #weapon: ClassicWeaponVisual | null;
   #weaponVisible = true;
@@ -78,14 +79,17 @@ export class ClassicPlayerAvatar {
     weapon: ClassicWeaponVisual | null,
     playerClass: ClassicPlayerClassDefinition,
     look: ClassicPlayerLookDefinition,
+    weaponDefinition: ClassicPlayerWeaponDefinition | null,
   ) {
     this.#lease = lease;
     this.#weapon = weapon;
     this.playerClass = playerClass;
     this.look = look;
-    this.templateKey = `${playerClass.name}_${look.key}_${playerClass.defaultWeapon.key}`;
+    this.weaponDefinition = weaponDefinition;
+    const weaponKey = weaponDefinition?.key ?? "unarmed";
+    this.templateKey = `${playerClass.name}_${look.key}_${weaponKey}`;
     this.object = lease.model.object;
-    this.object.name = `classic-player-${playerClass.key}-${look.key}-${playerClass.defaultWeapon.key}`;
+    this.object.name = `classic-player-${playerClass.key}-${look.key}-${weaponKey}`;
     lease.model.setClassicTransform({
       yaw: -Math.PI / 2,
       scale: 0.9,
@@ -102,8 +106,19 @@ export class ClassicPlayerAvatar {
     const look = playerClass.looks.find((candidate) => candidate.key === lookKey)
       ?? playerClass.looks.find((candidate) => candidate.key === playerClass.defaultLookKey)
       ?? playerClass.selection.look;
+    return this.loadResolved(assets, playerClass, look, playerClass.defaultWeapon);
+  }
+
+  static async loadResolved(
+    assets: ClassicAssetSource,
+    playerClass: ClassicPlayerClassDefinition,
+    look: ClassicPlayerLookDefinition,
+    weaponDefinition: ClassicPlayerWeaponDefinition | null,
+  ): Promise<ClassicPlayerAvatar | null> {
     const catalog = await MonsterCatalog.load(assets);
     const library = new ClassicSkinnedAssetLibrary(assets, catalog);
+    const animationWeaponType = weaponDefinition?.animationWeaponType ?? 0;
+    const mountedAnimationWeaponType = weaponDefinition?.mountedAnimationWeaponType ?? 0;
     const lease = await library.createInstance({
       skin: playerClass.skin,
       parts: look.parts.map((part, index) => ({
@@ -113,19 +128,31 @@ export class ClassicPlayerAvatar {
         alpha: part.alpha,
       })),
       actions: PLAYER_ACTIONS,
-      animationWeaponType: playerClass.defaultWeapon.animationWeaponType,
+      animationWeaponType,
       animationWeaponTypeByAction: Object.fromEntries(
         MOUNTED_PLAYER_ACTIONS.map((action) => [
           action,
-          playerClass.defaultWeapon.mountedAnimationWeaponType,
+          mountedAnimationWeaponType,
         ]),
       ),
       initialAction: "STAND02",
       actionVariant: playerClass.classIndex,
     });
     if (!lease) return null;
-    const weapon = await attachClassicWeapon(assets, lease, playerClass.defaultWeapon).catch(() => null);
-    return new ClassicPlayerAvatar(lease, weapon, playerClass, look);
+
+    const weapon = weaponDefinition
+      ? await attachClassicWeapon(assets, lease, weaponDefinition).catch((error: unknown) => {
+        console.warn(`Arma clássica ${weaponDefinition.name} indisponível`, error);
+        return null;
+      })
+      : null;
+    return new ClassicPlayerAvatar(
+      lease,
+      weapon,
+      playerClass,
+      look,
+      weaponDefinition,
+    );
   }
 
   setYaw(yaw: number): void {

@@ -63,6 +63,7 @@ export class ClassicServerClock {
   readonly #fallbackTickSource: () => number;
   #serverTick: number | null = null;
   #observedAt = 0;
+  #elapsed = 0;
 
   constructor(options: ClassicServerClockOptions = {}) {
     this.#nowSource = options.nowSource ?? (() => performance.now());
@@ -74,17 +75,20 @@ export class ClassicServerClock {
     if (!Number.isFinite(serverTick)) throw new RangeError(`Tick TMSrv inválido: ${serverTick}`);
     this.#serverTick = Math.trunc(serverTick) >>> 0;
     this.#observedAt = this.#nowSource();
+    this.#elapsed = 0;
   }
 
   now(): number {
     if (this.#serverTick === null) return this.#fallbackTickSource() >>> 0;
     const elapsed = Math.max(0, Math.trunc(this.#nowSource() - this.#observedAt));
-    return (this.#serverTick + elapsed) >>> 0;
+    this.#elapsed = Math.max(this.#elapsed, elapsed);
+    return (this.#serverTick + this.#elapsed) >>> 0;
   }
 
   clear(): void {
     this.#serverTick = null;
     this.#observedAt = 0;
+    this.#elapsed = 0;
   }
 }
 

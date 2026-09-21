@@ -348,10 +348,12 @@ Primeiro lote concluído:
   [docs/NETWORK_PROTOCOL.md](docs/NETWORK_PROTOCOL.md).
 
 Dispatcher, state machine, codec CPSock e gateway clássico já foram
-implementados e testados. O `GameApp` possui integração online opt-in, mas o
-boot padrão continua offline. A BASE759 confirma `GAME_PORT=7556` e
-`DB_PORT=7514`. Falta homologar o fluxo real contra TMSrv/DBSrv antes de
-considerar a sessão online pronta para uso normal.
+implementados e testados. O gateway mantém o `ClientTick` alinhado aos ticks
+recebidos do TMSrv antes de o CPSock codificar packets de saída, reproduzindo a
+função do relógio de servidor do cliente nativo. O `GameApp` possui integração
+online opt-in, mas o boot padrão continua offline. A BASE759 confirma
+`GAME_PORT=7556` e `DB_PORT=7514`. Falta homologar o fluxo real contra
+TMSrv/DBSrv antes de considerar a sessão online pronta para uso normal.
 
 ### P1 — replicação autoritativa de Field — **iniciado**
 
@@ -359,19 +361,29 @@ Lotes implementados:
 
 - `MSG_CreateMob` / `MSG_CreateMobTrade`;
 - `MSG_Action` / `MSG_Action_Stop` / `MSG_Motion` / remoção;
+- `MSG_UpdateEquip`, com reconstrução do avatar remoto quando o equipamento muda;
 - packets de HP/MP, dano, score/etc e ataque One/Two/Multi;
 - parser de `STRUCT_MOB` Win32 com 816 bytes comprovados;
 - `ClassicFieldReplica` ligado à `ClassicSession`;
 - `ClassicNetworkActorLayer` para NPCs/monstros autoritativos, usando
   BON/MSH/ANI/DDS clássicos quando o nome/template é confirmado;
-- jogadores remotos `1..999` ficam propositalmente sem fallback de NPC até
-  portar `SetPacketEquipItem/SetRace/CheckWeapon`;
+- `ClassicNetworkPlayerLayer` renderiza jogadores remotos `1..999` a partir
+  do equipamento real recebido do servidor e recusa combinações de classe/look
+  não auditadas em vez de usar fallback de NPC;
 - `PlayerState` possui modo autoritativo sem itens/recompensas mock;
 - `?mode=online` executa login → seleção → CharacterLogin antes de criar o
   `GameApp`;
 - clique online codifica as direções clássicas `1/2/3/4/6/7/8/9`, limita o
   Field a 12 passos, envia `MSG_Action` com velocidade de
-  `AttackRun & 0xF` e usa somente predição reconciliável pelo TMSrv.
+  `AttackRun & 0xF` e usa somente predição reconciliável pelo TMSrv;
+- raycast online seleciona players/NPCs autoritativos; alvo fora de alcance é
+  abordado por `MSG_Action` antes do ataque;
+- ataque físico básico envia o wire image clássico de `MSG_AttackOne` com
+  `Damage=-2`, deixando cálculo de dano, validação de alcance e regras de PK
+  exclusivamente no TMSrv;
+- retorno de ataque reconcilia animação e MP local a partir do packet do
+  servidor, sem descontar mana/dano no navegador.
 
-Próximo recorte: jogador remoto com equipamento real, seleção de alvo de rede e
-envio/reconciliação de ataque.
+Próximo recorte: envio autoritativo das skills clássicas usando os metadados já
+auditados de `SkillData.bin`, seguido de `MSG_UpdateAffect` e interações de
+NPC/loja.

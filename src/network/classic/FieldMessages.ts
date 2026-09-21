@@ -1,4 +1,5 @@
-import { PacketReader, type ClassicPacketHeader } from "./PacketIO";
+import { PacketReader, PacketWriter, type ClassicPacketHeader } from "./PacketIO";
+import { createClassicHeader, type PacketHeaderInput } from "./Messages";
 import { CLASSIC_PACKET_SIZES, ClassicOpcode } from "./Protocol";
 import { parseClassicScore, type ClassicScore } from "./Structures";
 
@@ -13,6 +14,12 @@ export interface ClassicMotionMessage {
 export interface ClassicRemoveMobMessage {
   readonly header: ClassicPacketHeader;
   readonly removeType: number;
+}
+
+export interface ClassicUpdateEquipMessage {
+  readonly header: ClassicPacketHeader;
+  readonly equipment: readonly number[];
+  readonly equipment2: Uint8Array;
 }
 
 export interface ClassicHpMpMessage {
@@ -96,6 +103,35 @@ export interface ClassicAttackMessage {
   readonly damages: readonly ClassicDamageEntry[];
 }
 
+export type ClassicAttackOpcode =
+  | typeof ClassicOpcode.attackOne
+  | typeof ClassicOpcode.attackTwo
+  | typeof ClassicOpcode.attackMulti;
+
+export interface ClassicClientAttackInput {
+  readonly opcode: ClassicAttackOpcode;
+  readonly posX: number;
+  readonly posY: number;
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly attackerId: number;
+  readonly damages: readonly ClassicDamageEntry[];
+  readonly progress?: number;
+  readonly motion?: number;
+  readonly skillParm?: number;
+  readonly doubleCritical?: number;
+  readonly flagLocal?: number;
+  readonly reserved?: number;
+  readonly currentHp?: number;
+  readonly currentMp?: number;
+  readonly currentExperience?: bigint;
+  readonly unknown0?: number;
+  readonly unknown1?: number;
+  readonly unknown2?: number;
+  readonly skillIndex?: number;
+  readonly requestedMp?: number;
+}
+
 export function parseMotionPacket(source: ArrayBuffer | ArrayBufferView): ClassicMotionMessage {
   const reader = new PacketReader(source);
   const header = reader.header();
@@ -106,6 +142,23 @@ export function parseMotionPacket(source: ArrayBuffer | ArrayBufferView): Classi
   const direction = u32BitsToFloat(directionBits);
   assertEmpty(reader, "MSG_Motion");
   return { header, motion, parm, directionBits, direction };
+}
+
+export function parseUpdateEquipPacket(
+  source: ArrayBuffer | ArrayBufferView,
+): ClassicUpdateEquipMessage {
+  const reader = new PacketReader(source);
+  const header = reader.header();
+  assertPacket(
+    header,
+    ClassicOpcode.updateEquip,
+    CLASSIC_PACKET_SIZES.updateEquip,
+    "MSG_UpdateEquip",
+  );
+  const equipment = Array.from({ length: 16 }, () => reader.u16());
+  const equipment2 = reader.bytes(16);
+  assertEmpty(reader, "MSG_UpdateEquip");
+  return { header, equipment, equipment2 };
 }
 
 export function parseRemoveMobPacket(
@@ -235,6 +288,57 @@ export function parseUpdateEtcPacket(
     donate,
     honor,
   };
+}
+
+/**
+ * Encodes the exact client-to-TMSrv wire image produced by TMFieldScene.
+ *
+ * BASE759 builds a full MSG_Attack and sends only the prefix matching
+ * MSG_AttackOne/Two when MaxTarget is 1/2. Therefore the outgoing one/two
+ * variants intentionally keep MSG_Attack's vital offsets (CurrentHp at 16,
+ * CurrentMp at 52) instead of the swapped server-to-client struct labels.
+ */
+export function createClientAttackPacket(
+  attack: ClassicClientAttackInput,
+  input: PacketHeaderInput = {},
+): Uint8Array {
+  const targetCount = attackTargetCount(attack.opcode);
+  if (attack.damages.length > targetCount) {
+    throw new RangeError(
+      `MSG_Attack 0x${attack.opcode.toString(16)} aceita no máximo ${targetCount} alvos`,
+    );
+  }
+
+  const size = attackPacketSize(attack.opcode);
+  const writer = new PacketWriter(size);
+  writer.header(createClassicHeader(attack.opcode, size, input));
+  writer.u32(attack.unknown1 ?? 0);
+  writer.i32(attack.currentHp ?? 0);
+  writer.u32(attack.unknown2 ?? 0);
+  writer.u64(attack.currentExperience ?? 0n);
+  writer.i16(attack.unknown0 ?? 0);
+  writer.u16(attack.posX);
+  writer.u16(attack.posY);
+  writer.u16(attack.targetX);
+  writer.u16(attack.targetY);
+  writer.u16(attack.attackerId);
+  writer.u16(attack.progress ?? 0);
+  writer.u8(attack.motion ?? 0xff);
+  writer.u8(attack.skillParm ?? 0);
+  writer.u8(attack.doubleCritical ?? 0);
+  writer.u8(attack.flagLocal ?? 0);
+  writer.i16(attack.reserved ?? 0);
+  writer.i32(attack.currentMp ?? -1);
+  writer.i16(attack.skillIndex ?? 0);
+  writer.i16(attack.requestedMp ?? 0);
+
+  for (let index = 0; index < targetCount; index++) {
+    const damage = attack.damages[index];
+    writer.i32(damage?.targetId ?? 0);
+    writer.i32(damage?.damage ?? 0);
+  }
+
+  return writer.finish();
 }
 
 export function parseAttackPacket(source: ArrayBuffer | ArrayBufferView): ClassicAttackMessage {

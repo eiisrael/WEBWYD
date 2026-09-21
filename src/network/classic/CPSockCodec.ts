@@ -45,6 +45,53 @@ export interface ClassicCPSockEncoderOptions {
   readonly tickSource?: () => number;
 }
 
+export interface ClassicServerClockOptions {
+  readonly nowSource?: () => number;
+  readonly fallbackTickSource?: () => number;
+}
+
+/**
+ * Browser/gateway equivalent of TMTimerManager's server clock.
+ *
+ * The native client receives TMSrv ticks, keeps a local monotonic clock aligned
+ * to them and CPSock::AddMessage stamps every outgoing packet with CurrentTime.
+ * A gateway process has a different uptime from TMSrv, so performance.now()
+ * cannot be sent directly as ClientTick for attack/skill packets.
+ */
+export class ClassicServerClock {
+  readonly #nowSource: () => number;
+  readonly #fallbackTickSource: () => number;
+  #serverTick: number | null = null;
+  #observedAt = 0;
+  #elapsed = 0;
+
+  constructor(options: ClassicServerClockOptions = {}) {
+    this.#nowSource = options.nowSource ?? (() => performance.now());
+    this.#fallbackTickSource = options.fallbackTickSource
+      ?? (() => Math.trunc(this.#nowSource()) >>> 0);
+  }
+
+  observe(serverTick: number): void {
+    if (!Number.isFinite(serverTick)) throw new RangeError(`Tick TMSrv inválido: ${serverTick}`);
+    this.#serverTick = Math.trunc(serverTick) >>> 0;
+    this.#observedAt = this.#nowSource();
+    this.#elapsed = 0;
+  }
+
+  now(): number {
+    if (this.#serverTick === null) return this.#fallbackTickSource() >>> 0;
+    const elapsed = Math.max(0, Math.trunc(this.#nowSource() - this.#observedAt));
+    this.#elapsed = Math.max(this.#elapsed, elapsed);
+    return (this.#serverTick + this.#elapsed) >>> 0;
+  }
+
+  clear(): void {
+    this.#serverTick = null;
+    this.#observedAt = 0;
+    this.#elapsed = 0;
+  }
+}
+
 export class ClassicCPSockEncoder {
   readonly #sendQueue = new Uint8Array(CLASSIC_CPSOCK_KEY_QUEUE_SIZE);
   #sendCount = 0;

@@ -10,11 +10,14 @@ import {
   type ClassicCharacterSummary,
 } from "../classic/Messages";
 import {
+  createClientAttackPacket,
+  parseAttackPacket,
   parseHpDamagePacket,
   parseHpModePacket,
   parseHpMpPacket,
   parseUpdateEtcPacket,
   parseUpdateScorePacket,
+  type ClassicAttackMessage,
   type ClassicHpDamageMessage,
   type ClassicHpModeMessage,
   type ClassicHpMpMessage,
@@ -101,6 +104,15 @@ export interface ClassicMoveIntent {
   readonly speed: number;
 }
 
+export interface ClassicBasicAttackIntent {
+  readonly targetId: number;
+  readonly posX: number;
+  readonly posY: number;
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly progress?: number;
+}
+
 export interface ClassicSessionEventMap {
   readonly state: ClassicSessionSnapshot;
   readonly message: string;
@@ -143,6 +155,15 @@ export class ClassicSession {
       }),
       this.#dispatcher.on(ClassicOpcode.messagePanel, (packet) => {
         this.emit("message", parseMessagePanel(packet).message);
+      }),
+      this.#dispatcher.on(ClassicOpcode.attackOne, (packet) => {
+        this.applyLocalAttack(parseAttackPacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.attackTwo, (packet) => {
+        this.applyLocalAttack(parseAttackPacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.attackMulti, (packet) => {
+        this.applyLocalAttack(parseAttackPacket(packet));
       }),
       this.#dispatcher.on(ClassicOpcode.setHpMp, (packet) => {
         this.applyHpMp(parseHpMpPacket(packet));
@@ -226,6 +247,37 @@ export class ClassicSession {
       route: intent.route,
       targetX: Math.trunc(intent.targetX),
       targetY: Math.trunc(intent.targetY),
+    }, { id: field.clientId }));
+  }
+
+  sendBasicAttackIntent(intent: ClassicBasicAttackIntent): void {
+    this.assertAlive();
+    const field = this.#field;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`Ataque inválido no estado ${this.#state}`);
+    }
+
+    const targetId = Math.trunc(intent.targetId);
+    if (targetId <= 0 || targetId === field.clientId) {
+      throw new RangeError(`Alvo de ataque inválido: ${targetId}`);
+    }
+
+    this.transport.send(createClientAttackPacket({
+      opcode: ClassicOpcode.attackOne,
+      posX: Math.trunc(intent.posX),
+      posY: Math.trunc(intent.posY),
+      targetX: Math.trunc(intent.targetX),
+      targetY: Math.trunc(intent.targetY),
+      attackerId: field.clientId,
+      progress: Math.trunc(intent.progress ?? 0),
+      motion: 0xff,
+      skillParm: 0,
+      flagLocal: 0,
+      currentHp: 0,
+      currentMp: -1,
+      skillIndex: 0,
+      requestedMp: 0,
+      damages: [{ targetId, damage: -2 }],
     }, { id: field.clientId }));
   }
 
@@ -317,6 +369,31 @@ export class ClassicSession {
     this.#secretCode?.fill(0);
     this.#secretCode = null;
     this.setState("field");
+  }
+
+  private applyLocalAttack(message: ClassicAttackMessage): void {
+    const field = this.#field;
+    if (
+      !field
+      || message.attackerId !== field.clientId
+      || message.flagLocal !== 0
+      || message.skillIndex < 0
+      || message.skillIndex >= 104
+    ) {
+      return;
+    }
+
+    field.runtime = {
+      ...field.runtime,
+      score: {
+        ...field.runtime.score,
+        mp: message.currentMp,
+        special: [...field.runtime.score.special],
+      },
+      currentMp: message.currentMp,
+      requestedMp: message.currentMp,
+    };
+    this.emitRuntime();
   }
 
   private applyHpMp(message: ClassicHpMpMessage): void {

@@ -3,10 +3,12 @@ import {
   parseHpDamagePacket,
   parseMotionPacket,
   parseRemoveMobPacket,
+  parseUpdateEquipPacket,
   type ClassicAttackMessage,
   type ClassicHpDamageMessage,
   type ClassicMotionMessage,
   type ClassicRemoveMobMessage,
+  type ClassicUpdateEquipMessage,
 } from "./FieldMessages";
 import {
   parseActionPacket,
@@ -94,6 +96,7 @@ export type ClassicFieldReplicaEvent =
   | { readonly type: "missing-motion"; readonly actorId: number; readonly motion: ClassicMotionMessage }
   | { readonly type: "missing-damage"; readonly actorId: number; readonly damage: ClassicHpDamageMessage }
   | { readonly type: "missing-attack"; readonly actorId: number; readonly attack: ClassicAttackMessage }
+  | { readonly type: "missing-equip"; readonly actorId: number; readonly equipment: ClassicUpdateEquipMessage }
   | { readonly type: "clear" };
 
 export class ClassicFieldReplica {
@@ -112,6 +115,7 @@ export class ClassicFieldReplica {
       dispatcher.on(ClassicOpcode.action, (packet) => this.applyAction(parseActionPacket(packet))),
       dispatcher.on(ClassicOpcode.actionStop, (packet) => this.applyAction(parseActionPacket(packet))),
       dispatcher.on(ClassicOpcode.motion, (packet) => this.applyMotion(parseMotionPacket(packet))),
+      dispatcher.on(ClassicOpcode.updateEquip, (packet) => this.applyEquipment(parseUpdateEquipPacket(packet))),
       dispatcher.on(ClassicOpcode.removeMob, (packet) => this.applyRemove(parseRemoveMobPacket(packet))),
       dispatcher.on(ClassicOpcode.setHpDam, (packet) => this.applyDamage(parseHpDamagePacket(packet))),
       dispatcher.on(ClassicOpcode.attackOne, (packet) => this.applyAttack(parseAttackPacket(packet))),
@@ -209,6 +213,21 @@ export class ClassicFieldReplica {
         directionBits: message.directionBits,
         tick: message.header.tick,
       },
+    });
+  }
+
+  applyEquipment(message: ClassicUpdateEquipMessage): ClassicFieldActor | null {
+    const actorId = message.header.id;
+    const current = this.#actors.get(actorId);
+    if (!current) {
+      this.emit({ type: "missing-equip", actorId, equipment: message });
+      return null;
+    }
+
+    return this.storeUpdate({
+      ...current,
+      equipment: [...message.equipment],
+      equipment2: message.equipment2.slice(),
     });
   }
 

@@ -73,6 +73,7 @@ export const CLASSIC_PACKET_SIZES = {
   setHpDam: 20,
   setHpMode: 20,
   motion: 20,
+  updateEquip: 60,
   attackOne: 68,
   attackTwo: 76,
   attackMulti: 164,

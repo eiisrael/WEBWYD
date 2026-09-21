@@ -161,9 +161,18 @@ export class ClassicNetworkPlayerLayer {
         break;
       }
       case "update":
-      case "attack":
+      case "attack": {
+        const existing = this.#visuals.get(event.actor.id);
+        const signature = equipmentSignature(event.actor.equipment);
+        if (existing && existing.equipmentSignature !== signature) {
+          this.bumpGeneration(event.actor.id);
+          this.release(event.actor.id);
+          this.queueMaterialize(event.actor);
+          break;
+        }
         this.syncActor(event.actor);
         break;
+      }
       case "remove":
         this.bumpGeneration(event.actorId);
         this.release(event.actorId);
@@ -178,6 +187,7 @@ export class ClassicNetworkPlayerLayer {
       case "missing-motion":
       case "missing-damage":
       case "missing-attack":
+      case "missing-equip":
         break;
     }
   }

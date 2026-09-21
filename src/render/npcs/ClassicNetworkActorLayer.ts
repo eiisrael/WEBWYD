@@ -175,6 +175,7 @@ export class ClassicNetworkActorLayer {
       case "missing-motion":
       case "missing-damage":
       case "missing-attack":
+      case "missing-equip":
         break;
     }
   }

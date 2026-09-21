@@ -28,6 +28,15 @@ import {
   type ClassicUpdateScoreMessage,
 } from "../classic/FieldMessages";
 import { ClassicOpcode } from "../classic/Protocol";
+import {
+  createPartyConfirmPacket,
+  createSetPkModePacket,
+  parsePartyAddPacket,
+  parsePartyRemovePacket,
+  parsePartyRequestPacket,
+  type ClassicPartyInvite,
+  type ClassicPartyMember,
+} from "../classic/PartyMessages";
 import type { ClassicMobCore, ClassicScore } from "../classic/Structures";
 import { ClassicPacketDispatcher } from "../classic/ClassicPacketDispatcher";
 import { ClassicFieldReplica } from "../classic/ClassicFieldReplica";
@@ -97,6 +106,9 @@ export interface ClassicSessionSnapshot {
   readonly cargoCoin: number;
   readonly selectedSlot: number | null;
   readonly field: ClassicFieldSession | null;
+  readonly party: readonly ClassicPartyMember[];
+  readonly partyInvite: ClassicPartyInvite | null;
+  readonly pkMode: boolean;
 }
 
 export interface ClassicMoveIntent {
@@ -135,6 +147,9 @@ export interface ClassicSessionEventMap {
   readonly error: Error;
   readonly unknownPacket: number;
   readonly runtime: ClassicPlayerRuntime;
+  readonly party: readonly ClassicPartyMember[];
+  readonly partyInvite: ClassicPartyInvite | null;
+  readonly pkMode: boolean;
 }
 
 type SessionListener<K extends keyof ClassicSessionEventMap> = (
@@ -155,6 +170,9 @@ export class ClassicSession {
   #cargoCoin = 0;
   #selectedSlot: number | null = null;
   #field: ClassicFieldSession | null = null;
+  readonly #partyMembers = new Map<number, ClassicPartyMember>();
+  #partyInvite: ClassicPartyInvite | null = null;
+  #pkMode = false;
   #disposed = false;
 
   constructor(readonly transport: ClassicTransport) {
@@ -199,6 +217,15 @@ export class ClassicSession {
       this.#dispatcher.on(ClassicOpcode.updateEtc, (packet) => {
         this.applyUpdateEtc(parseUpdateEtcPacket(packet));
       }),
+      this.#dispatcher.on(ClassicOpcode.partyRequest, (packet) => {
+        this.applyPartyRequest(parsePartyRequestPacket(packet));
+      }),
+      this.#dispatcher.on(ClassicOpcode.partyAdd, (packet) => {
+        this.applyPartyAdd(parsePartyAddPacket(packet).member);
+      }),
+      this.#dispatcher.on(ClassicOpcode.partyRemove, (packet) => {
+        this.applyPartyRemove(parsePartyRemovePacket(packet).memberId);
+      }),
       this.#dispatcher.onUnknown((_packet, header) => {
         this.emit("unknownPacket", header.type);
       }),
@@ -213,6 +240,9 @@ export class ClassicSession {
       cargoCoin: this.#cargoCoin,
       selectedSlot: this.#selectedSlot,
       field: this.#field ? cloneFieldSession(this.#field) : null,
+      party: this.partyMembers(),
+      partyInvite: this.#partyInvite ? clonePartyInvite(this.#partyInvite) : null,
+      pkMode: this.#pkMode,
     };
   }
 
@@ -339,6 +369,43 @@ export class ClassicSession {
       requestedMp: 0,
       damages: targetIds.map((targetId) => ({ targetId, damage: -1 })),
     }, { id: field.clientId }));
+  }
+
+  setPkMode(enabled: boolean): void {
+    this.assertAlive();
+    const field = this.#field;
+    if (this.#state !== "field" || !field) {
+      throw new Error(`PK inválido no estado ${this.#state}`);
+    }
+    const next = Boolean(enabled);
+    if (this.#pkMode === next) return;
+    this.transport.send(createSetPkModePacket(next, { id: field.clientId }));
+    this.#pkMode = next;
+    this.emit("pkMode", next);
+  }
+
+  acceptPartyInvite(): void {
+    this.assertAlive();
+    const field = this.#field;
+    const invite = this.#partyInvite;
+    if (this.#state !== "field" || !field || !invite) {
+      throw new Error("Nenhum convite de party pendente no Field");
+    }
+    this.transport.send(createPartyConfirmPacket(
+      invite.leader.id,
+      invite.leader.name,
+      { id: field.clientId },
+    ));
+    this.#partyInvite = null;
+    this.emit("partyInvite", null);
+  }
+
+  get party(): readonly ClassicPartyMember[] {
+    return this.partyMembers();
+  }
+
+  isPartyMember(id: number): boolean {
+    return this.#partyMembers.has(Math.trunc(id));
   }
 
   close(code?: number, reason?: string): void {
@@ -563,6 +630,41 @@ export class ClassicSession {
     this.emitRuntime();
   }
 
+  private applyPartyRequest(invite: ClassicPartyInvite): void {
+    const field = this.requireFieldForUpdate("MSG_REQParty");
+    if (invite.targetId !== 0 && invite.targetId !== field.clientId) return;
+    this.#partyInvite = clonePartyInvite(invite);
+    this.emit("partyInvite", clonePartyInvite(invite));
+  }
+
+  private applyPartyAdd(member: ClassicPartyMember): void {
+    this.requireFieldForUpdate("MSG_AddParty");
+    this.#partyMembers.set(member.id, { ...member });
+    if (this.#partyInvite?.leader.id === member.id) {
+      this.#partyInvite = null;
+      this.emit("partyInvite", null);
+    }
+    this.emit("party", this.partyMembers());
+  }
+
+  private applyPartyRemove(memberId: number): void {
+    this.requireFieldForUpdate("MSG_RemoveParty");
+    if (memberId === 0) {
+      this.#partyMembers.clear();
+    } else {
+      this.#partyMembers.delete(memberId);
+      // O cliente clássico dissolve visualmente o grupo quando sobra somente um.
+      if (this.#partyMembers.size <= 1) this.#partyMembers.clear();
+    }
+    this.emit("party", this.partyMembers());
+  }
+
+  private partyMembers(): readonly ClassicPartyMember[] {
+    return [...this.#partyMembers.values()]
+      .map((member) => ({ ...member }))
+      .sort((left, right) => left.partyIndex - right.partyIndex || left.id - right.id);
+  }
+
   private requireFieldForUpdate(packetName: string): ClassicFieldSession {
     if (!this.#field || this.#state !== "field") {
       throw new Error(`${packetName} recebido fora do Field`);
@@ -583,6 +685,9 @@ export class ClassicSession {
     this.#cargoCoin = 0;
     this.#selectedSlot = null;
     this.#field = null;
+    this.#partyMembers.clear();
+    this.#partyInvite = null;
+    this.#pkMode = false;
   }
 
   private zeroSensitiveBuffers(): void {
@@ -676,4 +781,13 @@ function cloneScore(score: ClassicScore): ClassicScore {
 
 export function isConnectedTransportState(state: ClassicTransportState): boolean {
   return state === "connecting" || state === "open";
+}
+
+
+function clonePartyInvite(invite: ClassicPartyInvite): ClassicPartyInvite {
+  return {
+    header: { ...invite.header },
+    leader: { ...invite.leader },
+    targetId: invite.targetId,
+  };
 }

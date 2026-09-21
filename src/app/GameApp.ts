@@ -278,6 +278,23 @@ export class GameApp {
       this.syncAutoCombatAuxiliary();
     };
     this.#hud.onAutoCombatPositionModeSelected = (mode) => this.setAutoCombatPositionMode(mode);
+    this.#hud.onPartyInviteDecision = (accept) => {
+      const session = this.#onlineSession;
+      if (!session) return;
+      if (accept) session.acceptPartyInvite();
+      else session.declinePartyInvite();
+      this.#hud.setOnlinePartyInvite(null);
+    };
+    this.#hud.onPkModeToggle = () => {
+      const session = this.#onlineSession;
+      if (!session) return;
+      session.setPkMode(!session.snapshot.pkMode);
+      this.#hud.setOnlinePkMode(session.snapshot.pkMode);
+    };
+    this.#hud.onOnlineShopClose = () => {
+      this.#onlineSession?.closeShop();
+      this.#hud.setOnlineShop(null);
+    };
     this.#hud.onChatSubmit = (message, channel) => {
       if (this.#onlineSession) {
         this.rejectOnlineLocalAction(`Chat ${channel}: ${message.slice(0, 24)}`);
@@ -301,6 +318,7 @@ export class GameApp {
           this.#hud.addLog(message, "system");
         }),
         this.#onlineSession.on("partyInvite", (invite) => {
+          this.#hud.setOnlinePartyInvite(invite?.leader.name ?? null);
           if (!invite) return;
           this.#hud.addLog(
             `PARTY · convite de ${invite.leader.name} [${invite.leader.id}] recebido.`,
@@ -308,6 +326,7 @@ export class GameApp {
           );
         }),
         this.#onlineSession.on("party", (members) => {
+          this.#hud.setOnlinePartyMembers(members);
           this.#hud.addLog(
             members.length > 0
               ? `PARTY · ${members.length} membro(s) sincronizados pelo TMSrv.`
@@ -316,6 +335,7 @@ export class GameApp {
           );
         }),
         this.#onlineSession.on("shop", (shop) => {
+          this.#hud.setOnlineShop(shop);
           if (!shop) return;
           const itemCount = shop.items.filter((item) => item.index > 0).length;
           this.#hud.addLog(
@@ -366,6 +386,12 @@ export class GameApp {
           }
         }),
       );
+    }
+    if (this.#onlineSession) {
+      this.#hud.setOnlinePkMode(this.#onlineSession.snapshot.pkMode);
+      this.#hud.setOnlinePartyMembers(this.#onlineSession.party);
+      this.#hud.setOnlinePartyInvite(this.#onlineSession.snapshot.partyInvite?.leader.name ?? null);
+      this.#hud.setOnlineShop(this.#onlineSession.snapshot.shop);
     }
     this.#hud.configureSkills(
       this.#skills.skills.map((skill) => ({ ...skill, offensive: isOffensiveBarSkill(skill) })),

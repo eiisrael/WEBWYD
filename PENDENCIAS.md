@@ -384,6 +384,20 @@ Lotes implementados:
 - retorno de ataque reconcilia animação e MP local a partir do packet do
   servidor, sem descontar mana/dano no navegador.
 
-Próximo recorte: envio autoritativo das skills clássicas usando os metadados já
-auditados de `SkillData.bin`, seguido de `MSG_UpdateAffect` e interações de
-NPC/loja.
+Recorte de skills online implementado parcialmente e sem simulação local:
+
+- `TargetType 1` usa o ator de rede selecionado e envia `Damage=-1`;
+- skills self/summon de `TargetType 0` enviam o próprio `ClientID`;
+- `MaxTarget` escolhe exatamente `MSG_AttackOne`, `MSG_AttackTwo` ou
+  `MSG_AttackMulti`;
+- MP/dano permanecem autoritativos; a barra/HUD não chama `PlayerState`
+  offline no modo online;
+- `MSG_UpdateAffect` (32 × `STRUCT_AFFECT` de 8 bytes) é preservado
+  separadamente do resumo `Affect[32]` de `MSG_UpdateScore`.
+
+Áreas/cones (`TargetType 3/4/5/6`) continuam bloqueados até portar os estados
+que a BASE759 usa para montar a lista de alvos: party, PK/town e summons. O caso
+especial de buff de party #44 também permanece fechado pelo mesmo motivo.
+
+Próximo recorte: replicação de party/PK necessária ao multi-alvo clássico,
+seguida de interações de NPC/loja.
